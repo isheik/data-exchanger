@@ -53,7 +53,15 @@ HWND hwnd;
 const int OUTPUT_BUF_SIZE = 512;
 char result_buf[MAXGETHOSTSTRUCT];
 
-void openSelectFileDialog()
+
+
+char* replace_char(char* str, char find, char replace) {
+	char *current_pos = strchr(str, find);
+	for (char* p = current_pos; (current_pos = strchr(str, find)) != NULL; *current_pos = replace);
+	return str;
+}
+
+char* openSelectFileDialog()
 {
 	char filename[MAX_PATH];
 
@@ -70,7 +78,9 @@ void openSelectFileDialog()
 
 	if (GetOpenFileNameA(&ofn))
 	{
-		OutputDebugStringA(filename);
+		//OutputDebugStringA(filename);
+		//return filename;
+		return _strdup(filename);
 		//MessageBox(windowHandle, TEXT("NOT YET IMPLEMENTED."), TEXT("Select a File"), MB_OK);
 	}
 	else
@@ -95,6 +105,7 @@ void openSelectFileDialog()
 		default:
 			break;
 		}
+		return NULL;
 	}
 }
 
@@ -129,6 +140,11 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	int bytes_to_read;
 	int i;
 	int j;
+	char *filename;
+	FILE *fp;
+	char f_read_buf[1024];
+	
+
 	// NEW
 
 
@@ -146,7 +162,20 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 			{
 				case IDC_BUTTON5_1:
 					// Forget about this for a while
-					openSelectFileDialog();
+					filename = openSelectFileDialog();
+					//OutputDebugString(filename);
+					filename = replace_char(filename, '\\', '/');
+					
+					OutputDebugString(filename);
+					fopen_s(&fp, filename, "r");
+					if (fp == NULL)
+					{
+						OutputDebugStringA("Failed to read file.");
+					}
+					while (fgets(f_read_buf, 1024, fp) != NULL)
+						OutputDebugString(f_read_buf);
+					fclose(fp);
+
 					break;
 				case IDC_BUTTON5_2:
 					if (GetDlgItemText(hwndDlg, IDC_EDIT5_1, hname_buf, INPUT_BUF_SIZE) == 0) 
