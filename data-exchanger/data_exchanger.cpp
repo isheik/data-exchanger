@@ -101,11 +101,36 @@ void openSelectFileDialog()
 BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	const int INPUT_BUF_SIZE = 256;
+	const int BUF_SIZE = 256;
+	char DEF_HOST[] = "localhost";
+	const int DEF_PORT = 5150;
+	const int DEF_PSIZE = 5;
+	const int DEF_REPEAT_NUM = 1;
 	char hname_buf[INPUT_BUF_SIZE];
 	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
 	char times_buf[INPUT_BUF_SIZE];
 	HANDLE async_handle;
+
+	// NEW
+	char *host;
+	int port;
+	int packet_size;
+	int repeat_num;
+	SOCKET sd;
+	struct sockaddr_in server;
+	struct hostent	*hp;
+	char *rbuf;
+	char *sbuf;
+	char *bp;
+	char **pptr;
+	int n;
+	int ns;
+	int bytes_to_read;
+	int i;
+	int j;
+	// NEW
+
 
 	WORD wVersionRequested = MAKEWORD(2, 2);
 	WSADATA wsaData;
@@ -124,13 +149,109 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					openSelectFileDialog();
 					break;
 				case IDC_BUTTON5_2:
-					GetDlgItemText(hwndDlg, IDC_EDIT5_1, hname_buf, INPUT_BUF_SIZE);
-					GetDlgItemText(hwndDlg, IDC_EDIT5_2, port_buf, INPUT_BUF_SIZE);
+					if (GetDlgItemText(hwndDlg, IDC_EDIT5_1, hname_buf, INPUT_BUF_SIZE) == 0) 
+					{
+						host = DEF_HOST;
+					}
+					else 
+					{
+						host = hname_buf;
+					}
+					if (GetDlgItemText(hwndDlg, IDC_EDIT5_2, port_buf, INPUT_BUF_SIZE) == 0)
+					{
+						port = DEF_PORT;
+					}
+					else {
+						port = atoi(port_buf);
+					}
+					if (GetDlgItemText(hwndDlg, IDC_EDIT5_3, psize_buf, INPUT_BUF_SIZE) == 0) 
+					{
+						packet_size = DEF_PSIZE;
+					}
+					else {
+						packet_size = atoi(port_buf);
+					}
+
+					if (GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE) == 0) 
+					{
+						repeat_num = DEF_REPEAT_NUM;
+					}
+					else {
+						repeat_num = atoi(times_buf);
+					}
 					OutputDebugString(hname_buf);
 					OutputDebugString(port_buf);
 					
+					sbuf = (char*)malloc(packet_size);
+					rbuf = (char*)malloc(packet_size);
+
+					
 					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO5_1)) {
 						// TCP code here
+						// Create the socket
+						if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+						{
+							perror("Cannot create socket");
+							exit(1);
+						}
+						// Initialize and set up the address structure
+						memset((char *)&server, 0, sizeof(struct sockaddr_in));
+						server.sin_family = AF_INET;
+						server.sin_port = htons(port);
+						if ((hp = gethostbyname(host)) == NULL)
+						{
+							fprintf(stderr, "Unknown server address\n");
+							exit(1);
+						}
+
+						// Copy the server address
+						memcpy((char *)&server.sin_addr, hp->h_addr, hp->h_length);
+
+						// Connecting to the server
+						if (connect(sd, (struct sockaddr *)&server, sizeof(server)) == -1)
+						{
+							fprintf(stderr, "Can't connect to server\n");
+							perror("connect");
+							exit(1);
+						}
+						//printf("Connected:    Server Name: %s\n", hp->h_name);
+						OutputDebugStringA("Connected");
+						pptr = hp->h_addr_list;
+						//printf("\t\tIP Address: %s\n", inet_ntoa(server.sin_addr));
+						//printf("Transmiting:\n");
+						memset((char *)sbuf, 0, sizeof(sbuf));
+						//gets_s(sbuf); // get user's text
+						// data	is a, b, c, ..., z, a, b,...
+						//for (i = 0; i < BUF_SIZE-1; i++)
+						for (i = 0; i < packet_size-1; i++)
+						{
+							j = (i < 26) ? i : i % 26;
+							sbuf[i] = 'a' + j;
+						}
+						sbuf[i] = '\0';
+						OutputDebugString(sbuf);
+						OutputDebugStringA("otawa1\n");
+
+						// Transmit data through the socket
+						ns = send(sd, sbuf, packet_size, 0);
+						//printf("Receive:\n");
+						bp = rbuf;
+						bytes_to_read = packet_size;
+
+						// client makes repeated calls to recv until no more data is expected to arrive.
+						while ((n = recv(sd, bp, bytes_to_read, 0)) < packet_size)
+						{
+							bp += n;
+							bytes_to_read -= n;
+							OutputDebugStringA("reding..");
+							if (n == 0) {
+								OutputDebugStringA("otawa!");
+								break;
+							}
+						}
+						//printf("%s\n", rbuf);
+						OutputDebugString(rbuf);
+						closesocket(sd);
 						OutputDebugStringA("yep");
 					}
 					else {
@@ -138,10 +259,10 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						OutputDebugStringA("not yep");
 					}
 
-					GetDlgItemText(hwndDlg, IDC_EDIT5_3, psize_buf, INPUT_BUF_SIZE);
-					GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE);
-					OutputDebugString(psize_buf);
-					OutputDebugString(times_buf);
+//					GetDlgItemText(hwndDlg, IDC_EDIT5_3, psize_buf, INPUT_BUF_SIZE);
+//					GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE);
+//					OutputDebugString(psize_buf);
+//					OutputDebugString(times_buf);
 
 					//async_handle = WSAAsncGetHostByName(hwnd, WM_GET_IP_BY_NAME_DONE, hname_buf, result_buf, MAXGETHOSTSTRUCT);
 					//if (async_handle == 0)
