@@ -36,6 +36,7 @@
 #include "resource2.h"
 #include "resource3.h"
 #include "resource4.h"
+#include "resource5.h"
 #include "custom_message.h"
 #include "data_exchanger.h"
 
@@ -51,6 +52,115 @@ WNDCLASSEX Wcl;
 HWND hwnd;
 const int OUTPUT_BUF_SIZE = 512;
 char result_buf[MAXGETHOSTSTRUCT];
+
+void openSelectFileDialog()
+{
+	char filename[MAX_PATH];
+
+	OPENFILENAME ofn;
+	ZeroMemory(&filename, sizeof(filename));
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = NULL;  // If you have a window to center over, put its HANDLE here
+	ofn.lpstrFilter = "Text Files\0*.txt\0Any File\0*.*\0";
+	ofn.lpstrFile = filename;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.lpstrTitle = "Select a File";
+	ofn.Flags = OFN_DONTADDTORECENT | OFN_FILEMUSTEXIST;
+
+	if (GetOpenFileNameA(&ofn))
+	{
+		OutputDebugStringA(filename);
+		//MessageBox(windowHandle, TEXT("NOT YET IMPLEMENTED."), TEXT("Select a File"), MB_OK);
+	}
+	else
+	{
+		switch (CommDlgExtendedError())
+		{
+		case CDERR_DIALOGFAILURE:
+		case CDERR_FINDRESFAILURE:
+		case CDERR_INITIALIZATION:
+		case CDERR_LOADRESFAILURE:
+		case CDERR_LOADSTRFAILURE:
+		case CDERR_LOCKRESFAILURE:
+		case CDERR_MEMALLOCFAILURE:
+		case CDERR_MEMLOCKFAILURE:
+		case CDERR_NOHINSTANCE:
+		case CDERR_NOHOOK:
+		case CDERR_NOTEMPLATE:
+		case CDERR_STRUCTSIZE:
+		case FNERR_BUFFERTOOSMALL:
+		case FNERR_INVALIDFILENAME:
+		case FNERR_SUBCLASSFAILURE:
+		default:
+			break;
+		}
+	}
+}
+
+BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	const int INPUT_BUF_SIZE = 256;
+	char hname_buf[INPUT_BUF_SIZE];
+	char port_buf[INPUT_BUF_SIZE];
+	char psize_buf[INPUT_BUF_SIZE];
+	char times_buf[INPUT_BUF_SIZE];
+	HANDLE async_handle;
+
+	WORD wVersionRequested = MAKEWORD(2, 2);
+	WSADATA wsaData;
+
+	WSAStartup(wVersionRequested, &wsaData);
+
+	switch (message)
+	{
+		case WM_INITDIALOG:
+			return TRUE;
+		case WM_COMMAND:
+			switch (LOWORD(wParam))
+			{
+				case IDC_BUTTON5_1:
+					// Forget about this for a while
+					openSelectFileDialog();
+					break;
+				case IDC_BUTTON5_2:
+					GetDlgItemText(hwndDlg, IDC_EDIT5_1, hname_buf, INPUT_BUF_SIZE);
+					GetDlgItemText(hwndDlg, IDC_EDIT5_2, port_buf, INPUT_BUF_SIZE);
+					OutputDebugString(hname_buf);
+					OutputDebugString(port_buf);
+					
+					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO5_1)) {
+						// TCP code here
+						OutputDebugStringA("yep");
+					}
+					else {
+						// UDP code here
+						OutputDebugStringA("not yep");
+					}
+
+					GetDlgItemText(hwndDlg, IDC_EDIT5_3, psize_buf, INPUT_BUF_SIZE);
+					GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE);
+					OutputDebugString(psize_buf);
+					OutputDebugString(times_buf);
+
+					//async_handle = WSAAsncGetHostByName(hwnd, WM_GET_IP_BY_NAME_DONE, hname_buf, result_buf, MAXGETHOSTSTRUCT);
+					//if (async_handle == 0)
+					//{
+					//	MessageBox(hwnd, "Error in get host by name", "Error", MB_OK);
+					//}
+					//else 
+					//{
+					//	EndDialog(hwndDlg, (INT_PTR)1);
+					//}
+					return TRUE;
+				case IDCANCEL:
+					EndDialog(hwndDlg, (INT_PTR)0);
+					return TRUE;
+			}
+	}
+	return FALSE;
+}
+
 
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: htoip_convert
@@ -400,8 +510,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 	switch (Message)
 	{
 		case WM_COMMAND:
-			switch (LOWORD(wParam)) 
+			switch (LOWORD(wParam))
 			{
+				case DE_CLIENT:
+					DialogBox(Wcl.hInstance, MAKEINTRESOURCE(IDD_FORMVIEW5), hwnd, handleClientDialog);
+					break;
+				case DE_SERVER:
+					break;
 				case HTOIP:
 					DialogBox(Wcl.hInstance, MAKEINTRESOURCE(IDD_FORMVIEW), hwnd, htoip_convert);
 					break;

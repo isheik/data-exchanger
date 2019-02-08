@@ -4,6 +4,8 @@
 #define IPTOH			203
 #define SVTOP			204
 #define PTOSV			205
+#define DE_CLIENT		210
+#define DE_SERVER		240
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 BOOL CALLBACK htoip_convert(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);

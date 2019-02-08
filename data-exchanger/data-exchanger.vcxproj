@@ -122,16 +122,20 @@
     <ClInclude Include="resource2.h" />
     <ClInclude Include="resource3.h" />
     <ClInclude Include="resource4.h" />
+    <ClInclude Include="resource5.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="data_exchanger.rc" />
+    <ResourceCompile Include="dbox_client.rc" />
     <ResourceCompile Include="dbox_htoip.rc" />
     <ResourceCompile Include="dbox_iptoh.rc" />
     <ResourceCompile Include="dbox_ptosv.rc" />
     <ResourceCompile Include="dbox_svtop.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="client.cpp" />
     <ClCompile Include="data_exchanger.cpp" />
+    <ClCompile Include="server.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
