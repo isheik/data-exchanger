@@ -123,6 +123,7 @@
     <ClInclude Include="resource3.h" />
     <ClInclude Include="resource4.h" />
     <ClInclude Include="resource5.h" />
+    <ClInclude Include="resource6.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="data_exchanger.rc" />
@@ -130,6 +131,7 @@
     <ResourceCompile Include="dbox_htoip.rc" />
     <ResourceCompile Include="dbox_iptoh.rc" />
     <ResourceCompile Include="dbox_ptosv.rc" />
+    <ResourceCompile Include="dbox_server.rc" />
     <ResourceCompile Include="dbox_svtop.rc" />
   </ItemGroup>
   <ItemGroup>

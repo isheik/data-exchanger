@@ -26,9 +26,12 @@
 -- 3. Resolve a user specified service name/protocol into its port number
 -- 4. Resolve a user specified port number/protocol into its service name
 ----------------------------------------------------------------------------------------------------------------------*/
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define STRICT
+#define PORT 5150
+#define DATA_BUFSIZE 8192
 
-#pragma comment(lib, "Ws2_32.lib")
+#include <winsock2.h>
 #include <windows.h>
 #include <stdio.h>
 #include "resource.h"
@@ -37,8 +40,10 @@
 #include "resource3.h"
 #include "resource4.h"
 #include "resource5.h"
+#include "resource6.h"
 #include "custom_message.h"
 #include "data_exchanger.h"
+#pragma comment(lib, "Ws2_32.lib")
 
 const char Name[] = "Network informatin Converter";
 const LPCTSTR helpMessage =
@@ -52,6 +57,23 @@ WNDCLASSEX Wcl;
 HWND hwnd;
 const int OUTPUT_BUF_SIZE = 512;
 char result_buf[MAXGETHOSTSTRUCT];
+
+// Server listen
+typedef struct _SOCKET_INFORMATION {
+	CHAR Buffer[DATA_BUFSIZE];
+	WSABUF DataBuf;
+	SOCKET Socket;
+	DWORD BytesSEND;
+	DWORD BytesRECV;
+} SOCKET_INFORMATION, *LPSOCKET_INFORMATION;
+
+BOOL CreateSocketInformation(SOCKET s);
+void FreeSocketInformation(DWORD Event);
+
+DWORD EventTotal = 0;
+WSAEVENT EventArray[WSA_MAXIMUM_WAIT_EVENTS];
+LPSOCKET_INFORMATION SocketArray[WSA_MAXIMUM_WAIT_EVENTS];
+// Server listen
 
 
 
@@ -109,6 +131,320 @@ char* openSelectFileDialog()
 	}
 }
 
+BOOL CreateSocketInformation(SOCKET s)
+{
+	LPSOCKET_INFORMATION SI;
+
+	if ((EventArray[EventTotal] = WSACreateEvent()) == WSA_INVALID_EVENT)
+	{
+		printf("WSACreateEvent() failed with error %d\n", WSAGetLastError());
+		return FALSE;
+	}
+
+	if ((SI = (LPSOCKET_INFORMATION)GlobalAlloc(GPTR,
+		sizeof(SOCKET_INFORMATION))) == NULL)
+	{
+		printf("GlobalAlloc() failed with error %d\n", GetLastError());
+		return FALSE;
+	}
+
+	// Prepare SocketInfo structure for use.
+
+	SI->Socket = s;
+	SI->BytesSEND = 0;
+	SI->BytesRECV = 0;
+
+	SocketArray[EventTotal] = SI;
+
+	EventTotal++;
+
+	return(TRUE);
+}
+
+
+void FreeSocketInformation(DWORD Event)
+{
+	LPSOCKET_INFORMATION SI = SocketArray[Event];
+	DWORD i;
+
+	closesocket(SI->Socket);
+
+	GlobalFree(SI);
+
+	WSACloseEvent(EventArray[Event]);
+
+	// Squash the socket and event arrays
+
+	for (i = Event; i < EventTotal; i++)
+	{
+		EventArray[i] = EventArray[i + 1];
+		SocketArray[i] = SocketArray[i + 1];
+	}
+
+	EventTotal--;
+}
+
+DWORD WINAPI runTCPServer(LPVOID tTcpParams) 
+{
+	SOCKET Listen;
+	SOCKET Accept;
+	SOCKADDR_IN InternetAddr;
+	DWORD Event;
+	WSANETWORKEVENTS NetworkEvents;
+	WSADATA wsaData;
+	DWORD Ret;
+	DWORD Flags;
+	DWORD RecvBytes;
+	DWORD SendBytes;
+
+	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
+	{
+		printf("WSAStartup() failed with error %d\n", Ret);
+		return TRUE;
+	}
+
+	if ((Listen = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+	{
+		printf("socket() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("socket() error");
+		return TRUE;
+	}
+
+	CreateSocketInformation(Listen);
+
+	if (WSAEventSelect(Listen, EventArray[EventTotal - 1], FD_ACCEPT | FD_CLOSE) == SOCKET_ERROR)
+	{
+		printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("WSAEventSelect() error");
+		return TRUE;
+	}
+
+	InternetAddr.sin_family = AF_INET;
+	InternetAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	InternetAddr.sin_port = htons(PORT);
+
+	OutputDebugStringA("Process1 ok");
+
+	if (bind(Listen, (PSOCKADDR)&InternetAddr, sizeof(InternetAddr)) == SOCKET_ERROR)
+	{
+		printf("bind() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("bind() error");
+		return TRUE;
+	}
+
+	if (listen(Listen, 5))
+	{
+		printf("listen() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("listen() error");
+		return TRUE;
+	}
+
+
+	while (TRUE)
+	{
+		// Wait for one of the sockets to receive I/O notification and 
+		if ((Event = WSAWaitForMultipleEvents(EventTotal, EventArray, FALSE,
+			WSA_INFINITE, FALSE)) == WSA_WAIT_FAILED)
+		{
+			printf("WSAWaitForMultipleEvents failed with error %d\n", WSAGetLastError());
+			OutputDebugStringA("WSAWaitForMultipleEvents error");
+			return TRUE;
+		}
+
+
+		if (WSAEnumNetworkEvents(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, EventArray[Event -
+			WSA_WAIT_EVENT_0], &NetworkEvents) == SOCKET_ERROR)
+		{
+			printf("WSAEnumNetworkEvents failed with error %d\n", WSAGetLastError());
+			OutputDebugStringA("WSAEnum error");
+			return TRUE;
+		}
+
+
+		if (NetworkEvents.lNetworkEvents & FD_ACCEPT)
+		{
+			if (NetworkEvents.iErrorCode[FD_ACCEPT_BIT] != 0)
+			{
+				printf("FD_ACCEPT failed with error %d\n", NetworkEvents.iErrorCode[FD_ACCEPT_BIT]);
+				OutputDebugStringA("FD_ACCEPT error");
+				break;
+			}
+
+			if ((Accept = accept(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, NULL, NULL)) == INVALID_SOCKET)
+			{
+				printf("accept() failed with error %d\n", WSAGetLastError());
+				OutputDebugStringA("accept() error");
+				break;
+			}
+
+			if (EventTotal > WSA_MAXIMUM_WAIT_EVENTS)
+			{
+				printf("Too many connections - closing socket.\n");
+				OutputDebugStringA("too many con error");
+				closesocket(Accept);
+				break;
+			}
+
+			CreateSocketInformation(Accept);
+
+			if (WSAEventSelect(Accept, EventArray[EventTotal - 1], FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR)
+			{
+				printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
+				OutputDebugStringA("WSAEventSelect2() error");
+				return TRUE;
+			}
+
+			printf("Socket %d connected\n", Accept);
+			OutputDebugStringA("Connected");
+		}
+
+
+		// Try to read and write data to and from the data buffer if read and write events occur.
+
+		if (NetworkEvents.lNetworkEvents & FD_READ ||
+			NetworkEvents.lNetworkEvents & FD_WRITE)
+		{
+			if (NetworkEvents.lNetworkEvents & FD_READ &&
+				NetworkEvents.iErrorCode[FD_READ_BIT] != 0)
+			{
+				printf("FD_READ failed with error %d\n", NetworkEvents.iErrorCode[FD_READ_BIT]);
+				OutputDebugStringA("FD_READ error");
+				break;
+			}
+
+			if (NetworkEvents.lNetworkEvents & FD_WRITE &&
+				NetworkEvents.iErrorCode[FD_WRITE_BIT] != 0)
+			{
+				printf("FD_WRITE failed with error %d\n", NetworkEvents.iErrorCode[FD_WRITE_BIT]);
+				OutputDebugStringA("FD_WRITE error");
+				break;
+			}
+
+			LPSOCKET_INFORMATION SocketInfo = SocketArray[Event - WSA_WAIT_EVENT_0];
+
+			// Read data only if the receive buffer is empty.
+
+			if (SocketInfo->BytesRECV == 0)
+			{
+				SocketInfo->DataBuf.buf = SocketInfo->Buffer;
+				SocketInfo->DataBuf.len = DATA_BUFSIZE;
+
+				Flags = 0;
+				if (WSARecv(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &RecvBytes,
+					&Flags, NULL, NULL) == SOCKET_ERROR)
+				{
+					if (WSAGetLastError() != WSAEWOULDBLOCK)
+					{
+						printf("WSARecv() failed with error %d\n", WSAGetLastError());
+						OutputDebugStringA("WSARecv() error");
+						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+						return TRUE;
+					}
+				}
+				else
+				{
+					SocketInfo->BytesRECV = RecvBytes;
+				}
+			}
+
+			// Write buffer data if it is available.
+
+			if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
+			{
+				SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
+				SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+
+				if (WSASend(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
+					NULL, NULL) == SOCKET_ERROR)
+				{
+					if (WSAGetLastError() != WSAEWOULDBLOCK)
+					{
+						printf("WSASend() failed with error %d\n", WSAGetLastError());
+						OutputDebugStringA("WSASend() error");
+						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+						return TRUE;
+					}
+
+					// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
+					// when more buffer space becomes available
+				}
+				else
+				{
+					SocketInfo->BytesSEND += SendBytes;
+
+					if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
+					{
+						SocketInfo->BytesSEND = 0;
+						SocketInfo->BytesRECV = 0;
+					}
+				}
+			}
+		}
+
+		if (NetworkEvents.lNetworkEvents & FD_CLOSE)
+		{
+			if (NetworkEvents.iErrorCode[FD_CLOSE_BIT] != 0)
+			{
+				printf("FD_CLOSE failed with error %d\n", NetworkEvents.iErrorCode[FD_CLOSE_BIT]);
+				OutputDebugStringA("FD_CLOSE error");
+				break;
+			}
+
+			printf("Closing socket information %d\n", SocketArray[Event - WSA_WAIT_EVENT_0]->Socket);
+			OutputDebugStringA("Closing sock");
+
+			FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+		}
+	}
+}
+
+
+BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+//#define IDD_FORMVIEW6                    161
+//#define IDC_EDIT6_1                       1061
+//#define IDC_EDIT6_2                       1062
+//#define IDC_RADIO6_1                      1063
+//#define IDC_RADIO6_2                      1064
+//#define IDC_BUTTON6_1                     1065
+	const int INPUT_BUF_SIZE = 256;
+	char hname_buf[INPUT_BUF_SIZE];
+	HANDLE hTcpRunner;
+	DWORD dwThreadID;
+
+	WORD wVersionRequested = MAKEWORD(2, 2);
+	WSADATA wsaData;
+
+	WSAStartup(wVersionRequested, &wsaData);
+
+	switch (message)
+	{
+		case WM_INITDIALOG:
+			return TRUE;
+		case WM_COMMAND:
+			switch (LOWORD(wParam))
+			{
+				case IDC_BUTTON6_1:
+					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO6_1))
+					{
+						OutputDebugStringA("yep");
+						hTcpRunner = CreateThread(NULL, 0, runTCPServer, NULL, 0, &dwThreadID);
+						return TRUE;
+					}
+					else 
+					{
+						//UDP
+						OutputDebugStringA("not yep");
+						return TRUE;
+					}
+				case IDCANCEL:
+					EndDialog(hwndDlg, (INT_PTR)0);
+					return TRUE;
+			}
+	}
+	return FALSE;
+}
+
 BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	const int INPUT_BUF_SIZE = 256;
@@ -116,7 +452,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	char DEF_HOST[] = "localhost";
 	const int DEF_PORT = 5150;
 	const int DEF_PSIZE = 5;
-	const int DEF_REPEAT_NUM = 1;
+	const int DEF_REPEAT_NUM = 2;
 	char hname_buf[INPUT_BUF_SIZE];
 	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
@@ -143,9 +479,18 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	char *filename;
 	FILE *fp;
 	char f_read_buf[1024];
-	
-
 	// NEW
+
+	// Client only
+	struct	sockaddr_in client;
+	int client_len;
+	int server_len;
+	int MAXLEN = 65535;
+	SYSTEMTIME stStartTime;
+	SYSTEMTIME stEndTime;
+
+
+	// Client only
 
 
 	WORD wVersionRequested = MAKEWORD(2, 2);
@@ -198,7 +543,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						packet_size = DEF_PSIZE;
 					}
 					else {
-						packet_size = atoi(port_buf);
+						packet_size = atoi(psize_buf);
 					}
 
 					if (GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE) == 0) 
@@ -210,6 +555,8 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					}
 					OutputDebugString(hname_buf);
 					OutputDebugString(port_buf);
+					OutputDebugString(psize_buf);
+					OutputDebugString(times_buf);
 					
 					sbuf = (char*)malloc(packet_size);
 					rbuf = (char*)malloc(packet_size);
@@ -241,6 +588,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						{
 							fprintf(stderr, "Can't connect to server\n");
 							perror("connect");
+							OutputDebugStringA("muripo");
 							exit(1);
 						}
 						//printf("Connected:    Server Name: %s\n", hp->h_name);
@@ -268,7 +616,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						bytes_to_read = packet_size;
 
 						// client makes repeated calls to recv until no more data is expected to arrive.
-						while ((n = recv(sd, bp, bytes_to_read, 0)) < packet_size)
+						while (bytes_to_read != 0 && (n = recv(sd, bp, bytes_to_read, 0)) < packet_size)
 						{
 							bp += n;
 							bytes_to_read -= n;
@@ -285,6 +633,85 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					}
 					else {
 						// UDP code here
+							// Create a datagram socket
+						if ((sd = socket(PF_INET, SOCK_DGRAM, 0)) == -1)
+						{
+							perror("Can't create a socket\n");
+							exit(1);
+						}
+
+						// Store server's information
+						memset((char *)&server, 0, sizeof(server));
+						server.sin_family = AF_INET;
+						server.sin_port = htons(port);
+
+						if ((hp = gethostbyname(host)) == NULL)
+						{
+							fprintf(stderr, "Can't get server's IP address\n");
+							exit(1);
+						}
+						//strcpy((char *)&server.sin_addr, hp->h_addr);
+						memcpy((char *)&server.sin_addr, hp->h_addr, hp->h_length);
+
+						// Bind local address to the socket
+						memset((char *)&client, 0, sizeof(client));
+						client.sin_family = AF_INET;
+						client.sin_port = htons(0);  // bind to any available port
+						client.sin_addr.s_addr = htonl(INADDR_ANY);
+
+						if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
+						{
+							perror("Can't bind name to socket");
+							exit(1);
+						}
+						// Find out what port was assigned and print it
+						client_len = sizeof(client);
+						if (getsockname(sd, (struct sockaddr *)&client, &client_len) < 0)
+						{
+							perror("getsockname: \n");
+							exit(1);
+						}
+						printf("Port aasigned is %d\n", ntohs(client.sin_port));
+
+						if (packet_size > MAXLEN)
+						{
+							fprintf(stderr, "Data is too big\n");
+							exit(1);
+						}
+
+						// data	is a, b, c, ..., z, a, b,...
+						for (i = 0; i < packet_size; i++)
+						{
+							j = (i < 26) ? i : i % 26;
+							sbuf[i] = 'a' + j;
+						}
+
+						// Get the start time
+						GetSystemTime(&stStartTime);
+
+						// transmit data
+						server_len = sizeof(server);
+						if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
+						{
+							perror("sendto failure");
+							exit(1);
+						}
+
+						// receive data
+						if (recvfrom(sd, rbuf, MAXLEN, 0, (struct sockaddr *)&server, &server_len) < 0)
+						{
+							perror(" recvfrom error");
+							exit(1);
+						}
+
+						//Get the end time and calculate the delay measure
+						GetSystemTime(&stEndTime);
+//						printf("Round-trip delay = %ld ms.\n", delay(stStartTime, stEndTime));
+
+						if (strncmp(sbuf, rbuf, packet_size) != 0)
+							printf("Data is corrupted\n");
+
+						closesocket(sd);
 						OutputDebugStringA("not yep");
 					}
 
@@ -666,6 +1093,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 					DialogBox(Wcl.hInstance, MAKEINTRESOURCE(IDD_FORMVIEW5), hwnd, handleClientDialog);
 					break;
 				case DE_SERVER:
+					DialogBox(Wcl.hInstance, MAKEINTRESOURCE(IDD_FORMVIEW6), hwnd, handleServerDialog);
 					break;
 				case HTOIP:
 					DialogBox(Wcl.hInstance, MAKEINTRESOURCE(IDD_FORMVIEW), hwnd, htoip_convert);
