@@ -197,6 +197,14 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 	DWORD RecvBytes;
 	DWORD SendBytes;
 
+	FILE *fp;
+	char filename[] = "test.txt";
+
+	// FILE WRITE
+
+	//
+
+
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
 		printf("WSAStartup() failed with error %d\n", Ret);
@@ -328,7 +336,7 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 			{
 				SocketInfo->DataBuf.buf = SocketInfo->Buffer;
 				SocketInfo->DataBuf.len = DATA_BUFSIZE;
-
+				
 				Flags = 0;
 				if (WSARecv(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &RecvBytes,
 					&Flags, NULL, NULL) == SOCKET_ERROR)
@@ -353,6 +361,10 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 			{
 				SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
 				SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+
+				fopen_s(&fp, filename, "a+");
+				fputs(SocketInfo->DataBuf.buf, fp);
+				fclose(fp);
 
 				if (WSASend(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
 					NULL, NULL) == SOCKET_ERROR)
