@@ -184,6 +184,243 @@ void FreeSocketInformation(DWORD Event)
 	EventTotal--;
 }
 
+DWORD WINAPI runUDPServer(LPVOID tUdpParams) 
+{
+	SOCKET Listen;
+	SOCKET Accept;
+	SOCKADDR_IN InternetAddr;
+	DWORD Event;
+	WSANETWORKEVENTS NetworkEvents;
+	WSADATA wsaData;
+	DWORD Ret;
+	DWORD Flags;
+	DWORD RecvBytes;
+	DWORD SendBytes;
+
+	// FILE WRITE
+	FILE *fp;
+	char filename[] = "udptest.txt";
+
+	//
+
+	// For UDP
+	SOCKADDR_IN sin;
+	int sin_len;
+	sin_len = sizeof(sin);
+
+	// For UDP
+	
+	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
+	{
+		printf("WSAStartup() failed with error %d\n", Ret);
+		return TRUE;
+	}
+
+	// UDP
+	//if ((Listen = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+	if ((Listen = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET)
+	{
+		printf("socket() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("socket() error");
+		return TRUE;
+	}
+
+	CreateSocketInformation(Listen);
+
+	// Should not need FD_ACCEPT for UDP
+	//if (WSAEventSelect(Listen, EventArray[EventTotal - 1], FD_ACCEPT | FD_CLOSE) == SOCKET_ERROR)
+	if (WSAEventSelect(Listen, EventArray[EventTotal - 1], FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR)
+	{
+		printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("WSAEventSelect() error");
+		return TRUE;
+	}
+
+	InternetAddr.sin_family = AF_INET;
+	InternetAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	InternetAddr.sin_port = htons(PORT);
+
+	OutputDebugStringA("Process1 ok");
+
+	if (bind(Listen, (PSOCKADDR)&InternetAddr, sizeof(InternetAddr)) == SOCKET_ERROR)
+	{
+		printf("bind() failed with error %d\n", WSAGetLastError());
+		OutputDebugStringA("bind() error");
+		return TRUE;
+	}
+
+	// Should not need for UDP
+	//if (listen(Listen, 5))
+	//{
+	//	printf("listen() failed with error %d\n", WSAGetLastError());
+	//	OutputDebugStringA("listen() error");
+	//	return TRUE;
+	//}
+
+	while (TRUE)
+	{
+		// Wait for one of the sockets to receive I/O notification and 
+		if ((Event = WSAWaitForMultipleEvents(EventTotal, EventArray, FALSE,
+			WSA_INFINITE, FALSE)) == WSA_WAIT_FAILED)
+		{
+			printf("WSAWaitForMultipleEvents failed with error %d\n", WSAGetLastError());
+			OutputDebugStringA("WSAWaitForMultipleEvents error");
+			return TRUE;
+		}
+
+
+		if (WSAEnumNetworkEvents(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, EventArray[Event -
+			WSA_WAIT_EVENT_0], &NetworkEvents) == SOCKET_ERROR)
+		{
+			printf("WSAEnumNetworkEvents failed with error %d\n", WSAGetLastError());
+			OutputDebugStringA("WSAEnum error");
+			return TRUE;
+		}
+
+
+		// Should not need for UDP
+		//if (NetworkEvents.lNetworkEvents & FD_ACCEPT)
+		//{
+		//	if (NetworkEvents.iErrorCode[FD_ACCEPT_BIT] != 0)
+		//	{
+		//		printf("FD_ACCEPT failed with error %d\n", NetworkEvents.iErrorCode[FD_ACCEPT_BIT]);
+		//		OutputDebugStringA("FD_ACCEPT error");
+		//		break;
+		//	}
+
+		//	if ((Accept = accept(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, NULL, NULL)) == INVALID_SOCKET)
+		//	{
+		//		printf("accept() failed with error %d\n", WSAGetLastError());
+		//		OutputDebugStringA("accept() error");
+		//		break;
+		//	}
+
+		//	if (EventTotal > WSA_MAXIMUM_WAIT_EVENTS)
+		//	{
+		//		printf("Too many connections - closing socket.\n");
+		//		OutputDebugStringA("too many con error");
+		//		closesocket(Accept);
+		//		break;
+		//	}
+
+		//	CreateSocketInformation(Accept);
+
+		//	if (WSAEventSelect(Accept, EventArray[EventTotal - 1], FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR)
+		//	{
+		//		printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
+		//		OutputDebugStringA("WSAEventSelect2() error");
+		//		return TRUE;
+		//	}
+
+		//	printf("Socket %d connected\n", Accept);
+		//	OutputDebugStringA("Connected");
+		//}
+
+
+		// Try to read and write data to and from the data buffer if read and write events occur.
+
+		if (NetworkEvents.lNetworkEvents & FD_READ ||
+			NetworkEvents.lNetworkEvents & FD_WRITE)
+		{
+			if (NetworkEvents.lNetworkEvents & FD_READ &&
+				NetworkEvents.iErrorCode[FD_READ_BIT] != 0)
+			{
+				printf("FD_READ failed with error %d\n", NetworkEvents.iErrorCode[FD_READ_BIT]);
+				OutputDebugStringA("FD_READ error");
+				break;
+			}
+
+			if (NetworkEvents.lNetworkEvents & FD_WRITE &&
+				NetworkEvents.iErrorCode[FD_WRITE_BIT] != 0)
+			{
+				printf("FD_WRITE failed with error %d\n", NetworkEvents.iErrorCode[FD_WRITE_BIT]);
+				OutputDebugStringA("FD_WRITE error");
+				break;
+			}
+
+			LPSOCKET_INFORMATION SocketInfo = SocketArray[Event - WSA_WAIT_EVENT_0];
+
+			// Read data only if the receive buffer is empty.
+
+			if (SocketInfo->BytesRECV == 0)
+			{
+				SocketInfo->DataBuf.buf = SocketInfo->Buffer;
+				SocketInfo->DataBuf.len = DATA_BUFSIZE;
+				
+				Flags = 0;
+				if (WSARecvFrom(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &RecvBytes,
+					&Flags, (SOCKADDR *)&sin, &sin_len, NULL, NULL) == SOCKET_ERROR)
+				{
+					if (WSAGetLastError() != WSAEWOULDBLOCK)
+					{
+						printf("WSARecv() failed with error %d\n", WSAGetLastError());
+						OutputDebugStringA("WSARecv() error");
+						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+						return TRUE;
+					}
+				}
+				else
+				{
+					SocketInfo->BytesRECV = RecvBytes;
+				}
+			}
+
+			// Write buffer data if it is available.
+			if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
+			{
+				SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
+				SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+
+				fopen_s(&fp, filename, "a+");
+				fputs(SocketInfo->DataBuf.buf, fp);
+				fclose(fp);
+
+				if (WSASendTo(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
+					(SOCKADDR *)&sin, sin_len, NULL, NULL) == SOCKET_ERROR)
+				{
+					if (WSAGetLastError() != WSAEWOULDBLOCK)
+					{
+						printf("WSASend() failed with error %d\n", WSAGetLastError());
+						OutputDebugStringA("WSASend() error");
+						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+						return TRUE;
+					}
+
+					// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
+					// when more buffer space becomes available
+				}
+				else
+				{
+					SocketInfo->BytesSEND += SendBytes;
+
+					if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
+					{
+						SocketInfo->BytesSEND = 0;
+						SocketInfo->BytesRECV = 0;
+					}
+				}
+			}
+		}
+
+		if (NetworkEvents.lNetworkEvents & FD_CLOSE)
+		{
+			if (NetworkEvents.iErrorCode[FD_CLOSE_BIT] != 0)
+			{
+				printf("FD_CLOSE failed with error %d\n", NetworkEvents.iErrorCode[FD_CLOSE_BIT]);
+				OutputDebugStringA("FD_CLOSE error");
+				break;
+			}
+
+			printf("Closing socket information %d\n", SocketArray[Event - WSA_WAIT_EVENT_0]->Socket);
+			OutputDebugStringA("Closing sock");
+
+			FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+		}
+	}
+}
+
+
+
 DWORD WINAPI runTCPServer(LPVOID tTcpParams) 
 {
 	SOCKET Listen;
@@ -197,10 +434,9 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 	DWORD RecvBytes;
 	DWORD SendBytes;
 
+	// FILE WRITE
 	FILE *fp;
 	char filename[] = "test.txt";
-
-	// FILE WRITE
 
 	//
 
@@ -422,7 +658,9 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	const int INPUT_BUF_SIZE = 256;
 	char hname_buf[INPUT_BUF_SIZE];
 	HANDLE hTcpRunner;
-	DWORD dwThreadID;
+	HANDLE hUdpRunner;
+	DWORD dwTcpThreadID;
+	DWORD dwUdpThreadID;
 
 	WORD wVersionRequested = MAKEWORD(2, 2);
 	WSADATA wsaData;
@@ -440,13 +678,14 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO6_1))
 					{
 						OutputDebugStringA("yep");
-						hTcpRunner = CreateThread(NULL, 0, runTCPServer, NULL, 0, &dwThreadID);
+						hTcpRunner = CreateThread(NULL, 0, runTCPServer, NULL, 0, &dwTcpThreadID);
 						return TRUE;
 					}
 					else 
 					{
 						//UDP
 						OutputDebugStringA("not yep");
+						hUdpRunner = CreateThread(NULL, 0, runUDPServer, NULL, 0, &dwUdpThreadID);
 						return TRUE;
 					}
 				case IDCANCEL:
@@ -456,6 +695,8 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	}
 	return FALSE;
 }
+
+
 
 BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
