@@ -266,14 +266,6 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 		return TRUE;
 	}
 
-	// Should not need for UDP
-	//if (listen(Listen, 5))
-	//{
-	//	printf("listen() failed with error %d\n", WSAGetLastError());
-	//	OutputDebugStringA("listen() error");
-	//	return TRUE;
-	//}
-
 	while (TRUE)
 	{
 		// Wait for one of the sockets to receive I/O notification and 
@@ -293,48 +285,6 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 			OutputDebugStringA("WSAEnum error");
 			return TRUE;
 		}
-
-
-		// Should not need for UDP
-		//if (NetworkEvents.lNetworkEvents & FD_ACCEPT)
-		//{
-		//	if (NetworkEvents.iErrorCode[FD_ACCEPT_BIT] != 0)
-		//	{
-		//		printf("FD_ACCEPT failed with error %d\n", NetworkEvents.iErrorCode[FD_ACCEPT_BIT]);
-		//		OutputDebugStringA("FD_ACCEPT error");
-		//		break;
-		//	}
-
-		//	if ((Accept = accept(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, NULL, NULL)) == INVALID_SOCKET)
-		//	{
-		//		printf("accept() failed with error %d\n", WSAGetLastError());
-		//		OutputDebugStringA("accept() error");
-		//		break;
-		//	}
-
-		//	if (EventTotal > WSA_MAXIMUM_WAIT_EVENTS)
-		//	{
-		//		printf("Too many connections - closing socket.\n");
-		//		OutputDebugStringA("too many con error");
-		//		closesocket(Accept);
-		//		break;
-		//	}
-
-		//	CreateSocketInformation(Accept);
-
-		//	if (WSAEventSelect(Accept, EventArray[EventTotal - 1], FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR)
-		//	{
-		//		printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
-		//		OutputDebugStringA("WSAEventSelect2() error");
-		//		return TRUE;
-		//	}
-
-		//	printf("Socket %d connected\n", Accept);
-		//	OutputDebugStringA("Connected");
-		//}
-
-
-		// Try to read and write data to and from the data buffer if read and write events occur.
 
 		if (NetworkEvents.lNetworkEvents & FD_READ ||
 			NetworkEvents.lNetworkEvents & FD_WRITE)
@@ -976,15 +926,45 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						// transmit data
 						server_len = sizeof(server);
 
-						for (i = 0; i < repeat_num; i++) {
-							// Transmit data through the socket
-							//ns = send(sd, sbuf, packet_size, 0);
-							//printf("Receive:\n");
-							if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
-							{
-								perror("sendto failure");
-								exit(1);
+
+						if (selected_filename == NULL) {
+							for (i = 0; i < repeat_num; i++) {
+								// Transmit data through the socket
+								//ns = send(sd, sbuf, packet_size, 0);
+								//printf("Receive:\n");
+								if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
+								{
+									perror("sendto failure");
+									exit(1);
+								}
 							}
+						}
+						else {
+							num_packets = selected_filesize / (packet_size-1);
+							if (selected_filesize % packet_size-1 != 0) {
+								num_packets++;
+							}
+
+							fopen_s(&selected_fp, selected_filename, "r");
+							for (i = 0; i < num_packets; i++)
+							{
+								//fgets(sbuf, packet_size, selected_fp);
+								fread_bytes = fread_s(sbuf, packet_size, 1, packet_size-1, selected_fp);
+								if (fread_bytes < packet_size-1) {
+									memset(sbuf + fread_bytes, 0, packet_size - fread_bytes);
+								}
+								////else {
+									sbuf[packet_size - 1] = '\0';
+								//}
+								//ns = send(sd, sbuf, packet_size, 0);
+								Sleep(1);
+								if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
+								{
+									perror("sendto failure");
+									exit(1);
+								}
+							}
+							fclose(selected_fp);
 						}
 
 						// receive data
