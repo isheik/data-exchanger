@@ -82,6 +82,11 @@ DWORD EventTotal = 0;
 WSAEVENT EventArray[WSA_MAXIMUM_WAIT_EVENTS];
 LPSOCKET_INFORMATION SocketArray[WSA_MAXIMUM_WAIT_EVENTS];
 
+char *selected_filename = NULL;
+int selected_filesize;
+FILE *selected_fp = NULL;
+int num_packets;
+
 char* replace_char(char* str, char find, char replace) {
 	char *current_pos = strchr(str, find);
 	for (char* p = current_pos; (current_pos = strchr(str, find)) != NULL; *current_pos = replace);
@@ -728,8 +733,8 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	const int BUF_SIZE = 256;
 	char DEF_HOST[] = "localhost";
 	const int DEF_PORT = 5150;
-	const int DEF_PSIZE = 5;
-	const int DEF_REPEAT_NUM = 2;
+	const int DEF_PSIZE = 1024;
+	const int DEF_REPEAT_NUM = 1;
 	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
 	char times_buf[INPUT_BUF_SIZE];
@@ -764,17 +769,17 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 			switch (LOWORD(wParam))
 			{
 				case IDC_BUTTON6_1:
-					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO6_1))
-					{
-						OutputDebugStringA("yep");
-						hTcpRunner = CreateThread(NULL, 0, runTCPServer, svp, 0, &dwTcpThreadID);
-						return TRUE;
-					}
-					else 
+					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO6_2))
 					{
 						//UDP
 						OutputDebugStringA("not yep");
 						hUdpRunner = CreateThread(NULL, 0, runUDPServer, svp, 0, &dwUdpThreadID);
+						return TRUE;
+					}
+					else 
+					{
+						OutputDebugStringA("yep");
+						hTcpRunner = CreateThread(NULL, 0, runTCPServer, svp, 0, &dwTcpThreadID);
 						return TRUE;
 					}
 				case IDCANCEL:
@@ -793,8 +798,8 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	const int BUF_SIZE = 256;
 	char DEF_HOST[] = "localhost";
 	const int DEF_PORT = 5150;
-	const int DEF_PSIZE = 5;
-	const int DEF_REPEAT_NUM = 2;
+	const int DEF_PSIZE = 1024;
+	const int DEF_REPEAT_NUM = 1;
 	char hname_buf[INPUT_BUF_SIZE];
 	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
@@ -818,8 +823,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	int bytes_to_read;
 	int i;
 	int j;
-	char *filename;
-	FILE *fp;
 	char f_read_buf[1024];
 	// NEW
 
@@ -832,7 +835,11 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	SYSTEMTIME stEndTime;
 
 
+	int filesize;
+	char *file_buf;
 	// Client only
+
+	int fread_bytes = 0;
 
 
 	WORD wVersionRequested = MAKEWORD(2, 2);
@@ -848,20 +855,24 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 			switch (LOWORD(wParam))
 			{
 				case IDC_BUTTON5_1:
-					// Forget about this for a while
-					filename = openSelectFileDialog();
-					//OutputDebugString(filename);
-					filename = replace_char(filename, '\\', '/');
 					
-					OutputDebugString(filename);
-					fopen_s(&fp, filename, "r");
-					if (fp == NULL)
+					// Forget about this for a while
+					selected_filename = openSelectFileDialog();
+					//OutputDebugString(filename);
+					selected_filename = replace_char(selected_filename, '\\', '/');
+					
+					fopen_s(&selected_fp, selected_filename, "r");
+					fseek(selected_fp, 0L, SEEK_END);
+					selected_filesize = ftell(selected_fp);
+					rewind(selected_fp);
+					
+					if (selected_fp == NULL)
 					{
 						OutputDebugStringA("Failed to read file.");
 					}
-					while (fgets(f_read_buf, 1024, fp) != NULL)
-						OutputDebugString(f_read_buf);
-					fclose(fp);
+					//while (fgets(f_read_buf, 1024, selected_fp) != NULL)
+					//	OutputDebugString(f_read_buf);
+					fclose(selected_fp);
 
 					break;
 				case IDC_BUTTON5_2:
@@ -901,81 +912,9 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					
 					sbuf = (char*)malloc(packet_size);
 					rbuf = (char*)malloc(packet_size);
-
 					
-					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO5_1)) {
-						// TCP code here
-						// Create the socket
-						if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
-						{
-							perror("Cannot create socket");
-							exit(1);
-						}
-						// Initialize and set up the address structure
-						memset((char *)&server, 0, sizeof(struct sockaddr_in));
-						server.sin_family = AF_INET;
-						server.sin_port = htons(port);
-						if ((hp = gethostbyname(host)) == NULL)
-						{
-							fprintf(stderr, "Unknown server address\n");
-							exit(1);
-						}
+					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO5_2)) {
 
-						// Copy the server address
-						memcpy((char *)&server.sin_addr, hp->h_addr, hp->h_length);
-
-						// Connecting to the server
-						if (connect(sd, (struct sockaddr *)&server, sizeof(server)) == -1)
-						{
-							fprintf(stderr, "Can't connect to server\n");
-							perror("connect");
-							OutputDebugStringA("muripo");
-							exit(1);
-						}
-						//printf("Connected:    Server Name: %s\n", hp->h_name);
-						OutputDebugStringA("Connected");
-						pptr = hp->h_addr_list;
-						//printf("\t\tIP Address: %s\n", inet_ntoa(server.sin_addr));
-						//printf("Transmiting:\n");
-						memset((char *)sbuf, 0, sizeof(sbuf));
-						//gets_s(sbuf); // get user's text
-						// data	is a, b, c, ..., z, a, b,...
-						//for (i = 0; i < BUF_SIZE-1; i++)
-						for (i = 0; i < packet_size-1; i++)
-						{
-							j = (i < 26) ? i : i % 26;
-							sbuf[i] = 'a' + j;
-						}
-						sbuf[i] = '\0';
-						OutputDebugString(sbuf);
-						OutputDebugStringA("otawa1\n");
-
-						for (i = 0; i < repeat_num; i++) {
-							// Transmit data through the socket
-							ns = send(sd, sbuf, packet_size, 0);
-							//printf("Receive:\n");
-						}
-
-						bp = rbuf;
-						bytes_to_read = packet_size;
-
-						// client makes repeated calls to recv until no more data is expected to arrive.
-						while (bytes_to_read != 0 && (n = recv(sd, bp, bytes_to_read, 0)) < packet_size)
-						{
-							bp += n;
-							bytes_to_read -= n;
-							OutputDebugStringA("reding..");
-							if (n == 0) {
-								OutputDebugStringA("otawa!");
-								break;
-							}
-						}
-						//printf("%s\n", rbuf);
-						OutputDebugString(rbuf);
-						closesocket(sd);
-						OutputDebugStringA("yep");
-					}
-					else {
 						// UDP code here
 							// Create a datagram socket
 						if ((sd = socket(PF_INET, SOCK_DGRAM, 0)) == -1)
@@ -1065,6 +1004,108 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 						closesocket(sd);
 						OutputDebugStringA("not yep");
+
+
+					}
+					else {
+						// TCP code here
+						// Create the socket
+						if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+						{
+							perror("Cannot create socket");
+							exit(1);
+						}
+						// Initialize and set up the address structure
+						memset((char *)&server, 0, sizeof(struct sockaddr_in));
+						server.sin_family = AF_INET;
+						server.sin_port = htons(port);
+						if ((hp = gethostbyname(host)) == NULL)
+						{
+							fprintf(stderr, "Unknown server address\n");
+							exit(1);
+						}
+
+						// Copy the server address
+						memcpy((char *)&server.sin_addr, hp->h_addr, hp->h_length);
+
+						// Connecting to the server
+						if (connect(sd, (struct sockaddr *)&server, sizeof(server)) == -1)
+						{
+							fprintf(stderr, "Can't connect to server\n");
+							perror("connect");
+							OutputDebugStringA("muripo");
+							exit(1);
+						}
+						//printf("Connected:    Server Name: %s\n", hp->h_name);
+						OutputDebugStringA("Connected");
+						pptr = hp->h_addr_list;
+						//printf("\t\tIP Address: %s\n", inet_ntoa(server.sin_addr));
+						//printf("Transmiting:\n");
+						memset((char *)sbuf, 0, sizeof(sbuf));
+						//gets_s(sbuf); // get user's text
+						// data	is a, b, c, ..., z, a, b,...
+						//for (i = 0; i < BUF_SIZE-1; i++)
+						if (selected_filename == NULL) {
+							for (i = 0; i < packet_size-1; i++)
+							{
+								j = (i < 26) ? i : i % 26;
+								sbuf[i] = 'a' + j;
+							}
+							sbuf[i] = '\0';
+							OutputDebugString(sbuf);
+							OutputDebugStringA("otawa1\n");
+
+							for (i = 0; i < repeat_num; i++) 
+							{
+								// Transmit data through the socket
+								ns = send(sd, sbuf, packet_size, 0);
+								//printf("Receive:\n");
+							}
+						}
+						else 
+						{
+							num_packets = selected_filesize / (packet_size-1);
+							if (selected_filesize % packet_size-1 != 0) {
+								num_packets++;
+							}
+
+							fopen_s(&selected_fp, selected_filename, "r");
+							for (i = 0; i < num_packets; i++)
+							{
+								//fgets(sbuf, packet_size, selected_fp);
+								fread_bytes = fread_s(sbuf, packet_size, 1, packet_size-1, selected_fp);
+								if (fread_bytes < packet_size-1) {
+									memset(sbuf + fread_bytes, 0, packet_size - fread_bytes);
+								}
+								////else {
+									sbuf[packet_size - 1] = '\0';
+								//}
+								ns = send(sd, sbuf, packet_size, 0);
+							}
+							fclose(selected_fp);
+						}
+
+						bp = rbuf;
+						bytes_to_read = packet_size;
+
+						// client makes repeated calls to recv until no more data is expected to arrive.
+						while (bytes_to_read != 0 && (n = recv(sd, bp, bytes_to_read, 0)) < packet_size)
+						{
+							bp += n;
+							bytes_to_read -= n;
+							OutputDebugStringA("reding..");
+							if (n == 0) {
+								OutputDebugStringA("otawa!");
+								break;
+							}
+						}
+						//printf("%s\n", rbuf);
+						OutputDebugString(rbuf);
+						closesocket(sd);
+						OutputDebugStringA("yep");
+
+
+
 					}
 
 //					GetDlgItemText(hwndDlg, IDC_EDIT5_3, psize_buf, INPUT_BUF_SIZE);
