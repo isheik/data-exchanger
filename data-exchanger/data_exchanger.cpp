@@ -34,6 +34,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <stdio.h>
+#include <list>
 #include "resource.h"
 #include "resource1.h"
 #include "resource2.h"
@@ -58,6 +59,8 @@ HWND hwnd;
 const int OUTPUT_BUF_SIZE = 512;
 char result_buf[MAXGETHOSTSTRUCT];
 
+
+
 // Server listen
 typedef struct _SOCKET_INFORMATION {
 	CHAR Buffer[DATA_BUFSIZE];
@@ -67,6 +70,24 @@ typedef struct _SOCKET_INFORMATION {
 	DWORD BytesRECV;
 } SOCKET_INFORMATION, *LPSOCKET_INFORMATION;
 
+typedef struct svparams {
+	int packet_size;
+	int exp_packet_num;
+};
+
+//typedef struct packet {
+//	int id;
+//	int packet_size;
+//	int 
+
+//} packet;
+// ll
+//typedef struct node {
+//	char * data;
+//	struct node * next;
+//} node_t;
+// ll
+
 BOOL CreateSocketInformation(SOCKET s);
 void FreeSocketInformation(DWORD Event);
 
@@ -75,7 +96,69 @@ WSAEVENT EventArray[WSA_MAXIMUM_WAIT_EVENTS];
 LPSOCKET_INFORMATION SocketArray[WSA_MAXIMUM_WAIT_EVENTS];
 // Server listen
 
+//void append_node(node_t * head, char * data, int data_size) {
+//	node_t * current = head;
+//
+//	if (current == NULL) 
+//	{
+//		current = (node_t*)malloc(sizeof(node_t));
+//		memcpy(current->data, data, data_size);
+//		current->next = NULL;
+//	}
+//	else 
+//	{
+//		while (current->next != NULL) {
+//			current = current->next;
+//		}
+//
+//		/* now we can add a new variable */
+//		current->next = (node_t*)malloc(sizeof(node_t));
+//		memcpy(current->next->data, data, data_size);
+//		current->next->next = NULL;
+//	}
+//}
 
+//void remove_first_node(node_t ** head) {
+//	node_t * next_node = NULL;
+//
+//	if (*head == NULL) {
+//		return;
+//	}
+//
+//	next_node = (*head)->next;
+//	free(*head);
+//	*head = next_node;
+//}
+//
+//int packetizeDataFromFile(char *filename) {
+//
+//	return 1;
+//}
+//
+//void packetizeData(int packet_size, int num_packets) {
+//	int i;
+//	int j;
+//	int HEADER_SIZE = 24;
+//	char * data = (char *)malloc(packet_size);
+//	node_t * head = NULL;
+//	char * padding = (char *)malloc(packet_size);
+//	//char *sbuf;
+//	////sbuf = (char*)malloc(packet_size);
+//
+//	
+//	//sprintf_s(data, "%d", atoi);
+//
+//	for (i = 0; i < packet_size-1; i++)
+//	{
+//		j = (i < 26) ? i : i % 26;
+//		padding[i] = 'a' + j;
+//	}
+//	
+//	for (i = 0; i < num_packets; i++) {
+//		append_node(head, padding, packet_size);
+//	}
+//}
+//
 
 char* replace_char(char* str, char find, char replace) {
 	char *current_pos = strchr(str, find);
@@ -209,7 +292,9 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	sin_len = sizeof(sin);
 
 	// For UDP
-	
+	svparams *svp = (svparams *)tUdpParams;
+	printf("%d, %d", svp->exp_packet_num, svp->packet_size);
+
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
 		printf("WSAStartup() failed with error %d\n", Ret);
@@ -440,6 +525,9 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 
 	//
 
+	svparams *svp = (svparams *)tTcpParams;
+	printf("%d, %d", svp->exp_packet_num, svp->packet_size);
+	
 
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
@@ -665,7 +753,38 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	WORD wVersionRequested = MAKEWORD(2, 2);
 	WSADATA wsaData;
 
+	int packet_size;
+	int exp_packet_num;
+	const int BUF_SIZE = 256;
+	char DEF_HOST[] = "localhost";
+	const int DEF_PORT = 5150;
+	const int DEF_PSIZE = 5;
+	const int DEF_REPEAT_NUM = 2;
+	char port_buf[INPUT_BUF_SIZE];
+	char psize_buf[INPUT_BUF_SIZE];
+	char times_buf[INPUT_BUF_SIZE];
+	HANDLE async_handle;
+	svparams *svp = (svparams*)malloc(sizeof(svp));
+
 	WSAStartup(wVersionRequested, &wsaData);
+
+	if (GetDlgItemText(hwndDlg, IDC_EDIT6_3, psize_buf, INPUT_BUF_SIZE) == 0) 
+	{
+		packet_size = DEF_PSIZE;
+	}
+	else {
+		packet_size = atoi(psize_buf);
+	}
+	if (GetDlgItemText(hwndDlg, IDC_EDIT6_4, times_buf, INPUT_BUF_SIZE) == 0) 
+	{
+		exp_packet_num = DEF_REPEAT_NUM;
+	}
+	else {
+		exp_packet_num = atoi(times_buf);
+	}
+
+	svp->packet_size = packet_size;
+	svp->exp_packet_num = exp_packet_num;
 
 	switch (message)
 	{
@@ -678,14 +797,14 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO6_1))
 					{
 						OutputDebugStringA("yep");
-						hTcpRunner = CreateThread(NULL, 0, runTCPServer, NULL, 0, &dwTcpThreadID);
+						hTcpRunner = CreateThread(NULL, 0, runTCPServer, svp, 0, &dwTcpThreadID);
 						return TRUE;
 					}
 					else 
 					{
 						//UDP
 						OutputDebugStringA("not yep");
-						hUdpRunner = CreateThread(NULL, 0, runUDPServer, NULL, 0, &dwUdpThreadID);
+						hUdpRunner = CreateThread(NULL, 0, runUDPServer, svp, 0, &dwUdpThreadID);
 						return TRUE;
 					}
 				case IDCANCEL:
@@ -798,7 +917,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					else {
 						packet_size = atoi(psize_buf);
 					}
-
 					if (GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE) == 0) 
 					{
 						repeat_num = DEF_REPEAT_NUM;
