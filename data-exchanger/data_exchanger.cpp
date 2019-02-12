@@ -75,90 +75,12 @@ typedef struct svparams {
 	int exp_packet_num;
 };
 
-//typedef struct packet {
-//	int id;
-//	int packet_size;
-//	int 
-
-//} packet;
-// ll
-//typedef struct node {
-//	char * data;
-//	struct node * next;
-//} node_t;
-// ll
-
 BOOL CreateSocketInformation(SOCKET s);
 void FreeSocketInformation(DWORD Event);
 
 DWORD EventTotal = 0;
 WSAEVENT EventArray[WSA_MAXIMUM_WAIT_EVENTS];
 LPSOCKET_INFORMATION SocketArray[WSA_MAXIMUM_WAIT_EVENTS];
-// Server listen
-
-//void append_node(node_t * head, char * data, int data_size) {
-//	node_t * current = head;
-//
-//	if (current == NULL) 
-//	{
-//		current = (node_t*)malloc(sizeof(node_t));
-//		memcpy(current->data, data, data_size);
-//		current->next = NULL;
-//	}
-//	else 
-//	{
-//		while (current->next != NULL) {
-//			current = current->next;
-//		}
-//
-//		/* now we can add a new variable */
-//		current->next = (node_t*)malloc(sizeof(node_t));
-//		memcpy(current->next->data, data, data_size);
-//		current->next->next = NULL;
-//	}
-//}
-
-//void remove_first_node(node_t ** head) {
-//	node_t * next_node = NULL;
-//
-//	if (*head == NULL) {
-//		return;
-//	}
-//
-//	next_node = (*head)->next;
-//	free(*head);
-//	*head = next_node;
-//}
-//
-//int packetizeDataFromFile(char *filename) {
-//
-//	return 1;
-//}
-//
-//void packetizeData(int packet_size, int num_packets) {
-//	int i;
-//	int j;
-//	int HEADER_SIZE = 24;
-//	char * data = (char *)malloc(packet_size);
-//	node_t * head = NULL;
-//	char * padding = (char *)malloc(packet_size);
-//	//char *sbuf;
-//	////sbuf = (char*)malloc(packet_size);
-//
-//	
-//	//sprintf_s(data, "%d", atoi);
-//
-//	for (i = 0; i < packet_size-1; i++)
-//	{
-//		j = (i < 26) ? i : i % 26;
-//		padding[i] = 'a' + j;
-//	}
-//	
-//	for (i = 0; i < num_packets; i++) {
-//		append_node(head, padding, packet_size);
-//	}
-//}
-//
 
 char* replace_char(char* str, char find, char replace) {
 	char *current_pos = strchr(str, find);
