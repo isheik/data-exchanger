@@ -29,7 +29,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define STRICT
 #define PORT 5150
-#define DATA_BUFSIZE 8192
+#define DATA_BUFSIZE 61440
 
 #include <winsock2.h>
 #include <windows.h>
@@ -504,8 +504,6 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	}
 }
 
-
-
 DWORD WINAPI runTCPServer(LPVOID tTcpParams) 
 {
 	SOCKET Listen;
@@ -518,16 +516,18 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 	DWORD Flags;
 	DWORD RecvBytes;
 	DWORD SendBytes;
+	int recvd_packet = 0;
+	int processed_packet = 0;
 
 	// FILE WRITE
 	FILE *fp;
 	char filename[] = "test.txt";
-
 	//
 
 	svparams *svp = (svparams *)tTcpParams;
+	char *packet_buf = (char *)malloc(svp->packet_size);
+	memset(packet_buf, 0, sizeof(packet_buf));
 	printf("%d, %d", svp->exp_packet_num, svp->packet_size);
-	
 
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
@@ -575,14 +575,21 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 	while (TRUE)
 	{
 		// Wait for one of the sockets to receive I/O notification and 
+
+		//if ((Event = WSAWaitForMultipleEvents(EventTotal, EventArray, FALSE,
+			//WSA_INFINITE, FALSE)) == WSA_WAIT_FAILED)
 		if ((Event = WSAWaitForMultipleEvents(EventTotal, EventArray, FALSE,
-			WSA_INFINITE, FALSE)) == WSA_WAIT_FAILED)
+			10000, FALSE)) == WSA_WAIT_FAILED)
 		{
 			printf("WSAWaitForMultipleEvents failed with error %d\n", WSAGetLastError());
 			OutputDebugStringA("WSAWaitForMultipleEvents error");
 			return TRUE;
 		}
-
+		if (Event == WSA_WAIT_TIMEOUT) {
+			closesocket(Accept);
+			WSACleanup();
+			ExitThread(0);
+		}
 
 		if (WSAEnumNetworkEvents(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, EventArray[Event -
 			WSA_WAIT_EVENT_0], &NetworkEvents) == SOCKET_ERROR)
@@ -655,65 +662,100 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 			LPSOCKET_INFORMATION SocketInfo = SocketArray[Event - WSA_WAIT_EVENT_0];
 
 			// Read data only if the receive buffer is empty.
+			int tout_counter = 0;
+			char estr[256];
+			int wrote_index = 0;
+			int remaining = svp->packet_size;
 
 			if (SocketInfo->BytesRECV == 0)
 			{
 				SocketInfo->DataBuf.buf = SocketInfo->Buffer;
-				SocketInfo->DataBuf.len = DATA_BUFSIZE;
+				//SocketInfo->DataBuf.len = DATA_BUFSIZE;
+				SocketInfo->DataBuf.len = svp->packet_size;
 				
 				Flags = 0;
-				if (WSARecv(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &RecvBytes,
-					&Flags, NULL, NULL) == SOCKET_ERROR)
+				while (remaining != 0 && tout_counter <= 5)
 				{
-					if (WSAGetLastError() != WSAEWOULDBLOCK)
+
+					// Here overriding databuf without writing to file when get partial packets and go to 2nd loop
+					if (WSARecv(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &RecvBytes,
+						&Flags, NULL, NULL) == SOCKET_ERROR)
 					{
-						printf("WSARecv() failed with error %d\n", WSAGetLastError());
-						OutputDebugStringA("WSARecv() error");
-						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
-						return TRUE;
+						if (WSAGetLastError() != WSAEWOULDBLOCK)
+						{
+							printf("WSARecv() failed with error %d\n", WSAGetLastError());
+							sprintf_s(estr, "WSARecv() failed with error %d\n", WSAGetLastError());
+							OutputDebugStringA("WSARecv() error");
+							OutputDebugString(estr);
+							FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+							return TRUE;
+						}
+					}
+					else
+					{
+						if (RecvBytes == 0) {
+							tout_counter++;
+						}
+						else {
+							SocketInfo->BytesRECV = RecvBytes;
+							remaining = remaining - SocketInfo->BytesRECV;
+							SocketInfo->DataBuf.len = remaining;
+
+							for (int i=0; i<SocketInfo->BytesRECV; i++)
+							{
+								packet_buf[i+wrote_index] = SocketInfo->DataBuf.buf[i];
+							}
+							wrote_index += SocketInfo->BytesRECV;
+
+							tout_counter = 0;
+						}
 					}
 				}
-				else
-				{
-					SocketInfo->BytesRECV = RecvBytes;
-				}
+				recvd_packet++;
 			}
 
 			// Write buffer data if it is available.
-
-			if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
+			//if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
+			if (recvd_packet > processed_packet)
 			{
-				SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
-				SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+				//SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
+				//SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+				SocketInfo->DataBuf.buf = SocketInfo->Buffer;
+				remaining = svp->packet_size;
+
+				//fputs(SocketInfo->DataBuf.buf, fp);
 
 				fopen_s(&fp, filename, "a+");
-				fputs(SocketInfo->DataBuf.buf, fp);
+				fputs(packet_buf, fp);
 				fclose(fp);
+				memset(packet_buf, 0, sizeof(packet_buf));
+				wrote_index = 0;
 
-				if (WSASend(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
-					NULL, NULL) == SOCKET_ERROR)
-				{
-					if (WSAGetLastError() != WSAEWOULDBLOCK)
-					{
-						printf("WSASend() failed with error %d\n", WSAGetLastError());
-						OutputDebugStringA("WSASend() error");
-						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
-						return TRUE;
-					}
+				//if (WSASend(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
+				//	NULL, NULL) == SOCKET_ERROR)
+				//{
+				//	if (WSAGetLastError() != WSAEWOULDBLOCK)
+				//	{
+				//		printf("WSASend() failed with error %d\n", WSAGetLastError());
+				//		OutputDebugStringA("WSASend() error");
+				//		FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+				//		return TRUE;
+				//	}
 
-					// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
-					// when more buffer space becomes available
-				}
-				else
-				{
-					SocketInfo->BytesSEND += SendBytes;
+				//	// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
+				//	// when more buffer space becomes available
+				//}
+				//else
+				//{
+					//SocketInfo->BytesSEND += SendBytes;
 
-					if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
-					{
-						SocketInfo->BytesSEND = 0;
+					//if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
+					//{
+						//SocketInfo->BytesSEND = 0;
 						SocketInfo->BytesRECV = 0;
-					}
-				}
+					//}
+				//}
+				processed_packet++;
 			}
 		}
 
@@ -737,12 +779,6 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 
 BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-//#define IDD_FORMVIEW6                    161
-//#define IDC_EDIT6_1                       1061
-//#define IDC_EDIT6_2                       1062
-//#define IDC_RADIO6_1                      1063
-//#define IDC_RADIO6_2                      1064
-//#define IDC_BUTTON6_1                     1065
 	const int INPUT_BUF_SIZE = 256;
 	char hname_buf[INPUT_BUF_SIZE];
 	HANDLE hTcpRunner;
@@ -980,9 +1016,12 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						OutputDebugString(sbuf);
 						OutputDebugStringA("otawa1\n");
 
-						// Transmit data through the socket
-						ns = send(sd, sbuf, packet_size, 0);
-						//printf("Receive:\n");
+						for (i = 0; i < repeat_num; i++) {
+							// Transmit data through the socket
+							ns = send(sd, sbuf, packet_size, 0);
+							//printf("Receive:\n");
+						}
+
 						bp = rbuf;
 						bytes_to_read = packet_size;
 
