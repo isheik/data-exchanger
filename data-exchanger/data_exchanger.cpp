@@ -217,6 +217,11 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	svparams *svp = (svparams *)tUdpParams;
 	printf("%d, %d", svp->exp_packet_num, svp->packet_size);
 
+	int recvd_packet = 0;
+	int processed_packet = 0;
+	int lost_packet = 0;
+
+
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
 		printf("WSAStartup() failed with error %d\n", Ret);
@@ -373,39 +378,46 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 			}
 
 			// Write buffer data if it is available.
-			if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
+			//if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
+			if (SocketInfo->BytesRECV == svp->packet_size)
 			{
-				SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
-				SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+				//SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
+				//SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+				recvd_packet++;
 
 				fopen_s(&fp, filename, "a+");
 				fputs(SocketInfo->DataBuf.buf, fp);
 				fclose(fp);
+				SocketInfo->BytesRECV = 0;
 
-				if (WSASendTo(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
-					(SOCKADDR *)&sin, sin_len, NULL, NULL) == SOCKET_ERROR)
-				{
-					if (WSAGetLastError() != WSAEWOULDBLOCK)
-					{
-						printf("WSASend() failed with error %d\n", WSAGetLastError());
-						OutputDebugStringA("WSASend() error");
-						FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
-						return TRUE;
-					}
+				//if (WSASendTo(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
+				//	(SOCKADDR *)&sin, sin_len, NULL, NULL) == SOCKET_ERROR)
+				//{
+				//	if (WSAGetLastError() != WSAEWOULDBLOCK)
+				//	{
+				//		printf("WSASend() failed with error %d\n", WSAGetLastError());
+				//		OutputDebugStringA("WSASend() error");
+				//		FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+				//		return TRUE;
+				//	}
 
 					// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
 					// when more buffer space becomes available
-				}
-				else
-				{
-					SocketInfo->BytesSEND += SendBytes;
+				//}
+				//else
+				//{
+				//	SocketInfo->BytesSEND += SendBytes;
 
-					if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
-					{
-						SocketInfo->BytesSEND = 0;
-						SocketInfo->BytesRECV = 0;
-					}
-				}
+				//	if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
+				//	{
+				//		SocketInfo->BytesSEND = 0;
+				//		SocketInfo->BytesRECV = 0;
+				//	}
+				//}
+			}
+			else {
+				lost_packet++;
+				SocketInfo->BytesRECV = 0;
 			}
 		}
 
@@ -1018,24 +1030,32 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							sbuf[i] = 'a' + j;
 						}
 
+
 						// Get the start time
 						GetSystemTime(&stStartTime);
 
 						// transmit data
 						server_len = sizeof(server);
-						if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
-						{
-							perror("sendto failure");
-							exit(1);
+
+						for (i = 0; i < repeat_num; i++) {
+							// Transmit data through the socket
+							//ns = send(sd, sbuf, packet_size, 0);
+							//printf("Receive:\n");
+							if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
+							{
+								perror("sendto failure");
+								exit(1);
+							}
 						}
 
 						// receive data
-						if (recvfrom(sd, rbuf, MAXLEN, 0, (struct sockaddr *)&server, &server_len) < 0)
-						{
-							perror(" recvfrom error");
-							exit(1);
-						}
+						//if (recvfrom(sd, rbuf, MAXLEN, 0, (struct sockaddr *)&server, &server_len) < 0)
+						//{
+						//	perror(" recvfrom error");
+						//	exit(1);
+						//}
 
+						//Sleep(30000);
 						//Get the end time and calculate the delay measure
 						GetSystemTime(&stEndTime);
 //						printf("Round-trip delay = %ld ms.\n", delay(stStartTime, stEndTime));
