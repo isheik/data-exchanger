@@ -87,6 +87,16 @@ int selected_filesize;
 FILE *selected_fp = NULL;
 int num_packets;
 
+// Compute the delay between tl and t2 in milliseconds
+long delay(SYSTEMTIME t1, SYSTEMTIME t2)
+{
+	long d;
+
+	d = (t2.wSecond - t1.wSecond) * 1000;
+	d += (t2.wMilliseconds - t1.wMilliseconds);
+	return(d);
+}
+
 char* replace_char(char* str, char find, char replace) {
 	char *current_pos = strchr(str, find);
 	for (char* p = current_pos; (current_pos = strchr(str, find)) != NULL; *current_pos = replace);
@@ -110,10 +120,7 @@ char* openSelectFileDialog()
 
 	if (GetOpenFileNameA(&ofn))
 	{
-		//OutputDebugStringA(filename);
-		//return filename;
 		return _strdup(filename);
-		//MessageBox(windowHandle, TEXT("NOT YET IMPLEMENTED."), TEXT("Select a File"), MB_OK);
 	}
 	else
 	{
@@ -205,7 +212,7 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	DWORD Ret;
 	DWORD Flags;
 	DWORD RecvBytes;
-	DWORD SendBytes;
+	//DWORD SendBytes;
 
 	// FILE WRITE
 	FILE *fp;
@@ -226,6 +233,9 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	int processed_packet = 0;
 	int lost_packet = 0;
 
+	SYSTEMTIME tr_start_time;
+	SYSTEMTIME tr_end_time;
+	int first_read_flag = 1;
 
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
@@ -270,13 +280,17 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	{
 		// Wait for one of the sockets to receive I/O notification and 
 		if ((Event = WSAWaitForMultipleEvents(EventTotal, EventArray, FALSE,
-			WSA_INFINITE, FALSE)) == WSA_WAIT_FAILED)
+			10000, FALSE)) == WSA_WAIT_FAILED)
 		{
 			printf("WSAWaitForMultipleEvents failed with error %d\n", WSAGetLastError());
 			OutputDebugStringA("WSAWaitForMultipleEvents error");
 			return TRUE;
 		}
-
+		if (Event == WSA_WAIT_TIMEOUT) {
+			printf("%ld", delay(tr_start_time, tr_end_time));
+			WSACleanup();
+			ExitThread(0);
+		}
 
 		if (WSAEnumNetworkEvents(SocketArray[Event - WSA_WAIT_EVENT_0]->Socket, EventArray[Event -
 			WSA_WAIT_EVENT_0], &NetworkEvents) == SOCKET_ERROR)
@@ -308,6 +322,10 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 			LPSOCKET_INFORMATION SocketInfo = SocketArray[Event - WSA_WAIT_EVENT_0];
 
 			// Read data only if the receive buffer is empty.
+			if (first_read_flag) {
+				GetSystemTime(&tr_start_time);
+				first_read_flag = 0;
+			}
 
 			if (SocketInfo->BytesRECV == 0)
 			{
@@ -333,42 +351,15 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 			}
 
 			// Write buffer data if it is available.
-			//if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
 			if (SocketInfo->BytesRECV == svp->packet_size)
 			{
-				//SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
-				//SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+				GetSystemTime(&tr_end_time);
 				recvd_packet++;
 
 				fopen_s(&fp, filename, "a+");
 				fputs(SocketInfo->DataBuf.buf, fp);
 				fclose(fp);
 				SocketInfo->BytesRECV = 0;
-
-				//if (WSASendTo(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
-				//	(SOCKADDR *)&sin, sin_len, NULL, NULL) == SOCKET_ERROR)
-				//{
-				//	if (WSAGetLastError() != WSAEWOULDBLOCK)
-				//	{
-				//		printf("WSASend() failed with error %d\n", WSAGetLastError());
-				//		OutputDebugStringA("WSASend() error");
-				//		FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
-				//		return TRUE;
-				//	}
-
-					// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
-					// when more buffer space becomes available
-				//}
-				//else
-				//{
-				//	SocketInfo->BytesSEND += SendBytes;
-
-				//	if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
-				//	{
-				//		SocketInfo->BytesSEND = 0;
-				//		SocketInfo->BytesRECV = 0;
-				//	}
-				//}
 			}
 			else {
 				lost_packet++;
@@ -407,6 +398,8 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 	DWORD SendBytes;
 	int recvd_packet = 0;
 	int processed_packet = 0;
+	SYSTEMTIME tr_start_time;
+	SYSTEMTIME tr_end_time;
 
 	// FILE WRITE
 	FILE *fp;
@@ -475,6 +468,7 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 			return TRUE;
 		}
 		if (Event == WSA_WAIT_TIMEOUT) {
+			printf("%ld", delay(tr_start_time, tr_end_time));
 			closesocket(Accept);
 			WSACleanup();
 			ExitThread(0);
@@ -524,6 +518,7 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 
 			printf("Socket %d connected\n", Accept);
 			OutputDebugStringA("Connected");
+			GetSystemTime(&tr_start_time);
 		}
 
 
@@ -607,12 +602,9 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 			//if (SocketInfo->BytesRECV > SocketInfo->BytesSEND)
 			if (recvd_packet > processed_packet)
 			{
-				//SocketInfo->DataBuf.buf = SocketInfo->Buffer + SocketInfo->BytesSEND;
-				//SocketInfo->DataBuf.len = SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+				GetSystemTime(&tr_end_time);
 				SocketInfo->DataBuf.buf = SocketInfo->Buffer;
 				remaining = svp->packet_size;
-
-				//fputs(SocketInfo->DataBuf.buf, fp);
 
 				fopen_s(&fp, filename, "a+");
 				fputs(packet_buf, fp);
@@ -620,30 +612,7 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 				memset(packet_buf, 0, sizeof(packet_buf));
 				wrote_index = 0;
 
-				//if (WSASend(SocketInfo->Socket, &(SocketInfo->DataBuf), 1, &SendBytes, 0,
-				//	NULL, NULL) == SOCKET_ERROR)
-				//{
-				//	if (WSAGetLastError() != WSAEWOULDBLOCK)
-				//	{
-				//		printf("WSASend() failed with error %d\n", WSAGetLastError());
-				//		OutputDebugStringA("WSASend() error");
-				//		FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
-				//		return TRUE;
-				//	}
-
-				//	// A WSAEWOULDBLOCK error has occured. An FD_WRITE event will be posted
-				//	// when more buffer space becomes available
-				//}
-				//else
-				//{
-					//SocketInfo->BytesSEND += SendBytes;
-
-					//if (SocketInfo->BytesSEND == SocketInfo->BytesRECV)
-					//{
-						//SocketInfo->BytesSEND = 0;
-						SocketInfo->BytesRECV = 0;
-					//}
-				//}
+				SocketInfo->BytesRECV = 0;
 				processed_packet++;
 			}
 		}
@@ -669,7 +638,6 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	const int INPUT_BUF_SIZE = 256;
-	char hname_buf[INPUT_BUF_SIZE];
 	HANDLE hTcpRunner;
 	HANDLE hUdpRunner;
 	DWORD dwTcpThreadID;
@@ -685,10 +653,8 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	const int DEF_PORT = 5150;
 	const int DEF_PSIZE = 1024;
 	const int DEF_REPEAT_NUM = 1;
-	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
 	char times_buf[INPUT_BUF_SIZE];
-	HANDLE async_handle;
 	svparams *svp = (svparams*)malloc(sizeof(svp));
 
 	WSAStartup(wVersionRequested, &wsaData);
@@ -754,7 +720,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
 	char times_buf[INPUT_BUF_SIZE];
-	HANDLE async_handle;
 
 	// NEW
 	char *host;
@@ -773,7 +738,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	int bytes_to_read;
 	int i;
 	int j;
-	char f_read_buf[1024];
 	// NEW
 
 	// Client only
@@ -785,8 +749,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	SYSTEMTIME stEndTime;
 
 
-	int filesize;
-	char *file_buf;
 	// Client only
 
 	int fread_bytes = 0;
@@ -820,8 +782,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					{
 						OutputDebugStringA("Failed to read file.");
 					}
-					//while (fgets(f_read_buf, 1024, selected_fp) != NULL)
-					//	OutputDebugString(f_read_buf);
 					fclose(selected_fp);
 
 					break;
@@ -866,7 +826,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO5_2)) {
 
 						// UDP code here
-							// Create a datagram socket
+						// Create a datagram socket
 						if ((sd = socket(PF_INET, SOCK_DGRAM, 0)) == -1)
 						{
 							perror("Can't create a socket\n");
@@ -883,7 +843,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							fprintf(stderr, "Can't get server's IP address\n");
 							exit(1);
 						}
-						//strcpy((char *)&server.sin_addr, hp->h_addr);
 						memcpy((char *)&server.sin_addr, hp->h_addr, hp->h_length);
 
 						// Bind local address to the socket
@@ -912,22 +871,20 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							exit(1);
 						}
 
-						// data	is a, b, c, ..., z, a, b,...
-						for (i = 0; i < packet_size; i++)
-						{
-							j = (i < 26) ? i : i % 26;
-							sbuf[i] = 'a' + j;
-						}
-
-
 						// Get the start time
 						GetSystemTime(&stStartTime);
 
 						// transmit data
 						server_len = sizeof(server);
 
-
 						if (selected_filename == NULL) {
+							// data	is a, b, c, ..., z, a, b,...
+							for (i = 0; i < packet_size; i++)
+							{
+								j = (i < 26) ? i : i % 26;
+								sbuf[i] = 'a' + j;
+							}
+
 							for (i = 0; i < repeat_num; i++) {
 								// Transmit data through the socket
 								//ns = send(sd, sbuf, packet_size, 0);
@@ -948,16 +905,13 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							fopen_s(&selected_fp, selected_filename, "r");
 							for (i = 0; i < num_packets; i++)
 							{
-								//fgets(sbuf, packet_size, selected_fp);
 								fread_bytes = fread_s(sbuf, packet_size, 1, packet_size-1, selected_fp);
 								if (fread_bytes < packet_size-1) {
 									memset(sbuf + fread_bytes, 0, packet_size - fread_bytes);
 								}
-								////else {
-									sbuf[packet_size - 1] = '\0';
-								//}
-								//ns = send(sd, sbuf, packet_size, 0);
-								Sleep(1);
+								sbuf[packet_size - 1] = '\0';
+
+								//Sleep(1);
 								if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
 								{
 									perror("sendto failure");
@@ -967,25 +921,13 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							fclose(selected_fp);
 						}
 
-						// receive data
-						//if (recvfrom(sd, rbuf, MAXLEN, 0, (struct sockaddr *)&server, &server_len) < 0)
-						//{
-						//	perror(" recvfrom error");
-						//	exit(1);
-						//}
-
-						//Sleep(30000);
-						//Get the end time and calculate the delay measure
 						GetSystemTime(&stEndTime);
-//						printf("Round-trip delay = %ld ms.\n", delay(stStartTime, stEndTime));
 
 						if (strncmp(sbuf, rbuf, packet_size) != 0)
 							printf("Data is corrupted\n");
 
 						closesocket(sd);
 						OutputDebugStringA("not yep");
-
-
 					}
 					else {
 						// TCP code here
@@ -1016,15 +958,10 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							OutputDebugStringA("muripo");
 							exit(1);
 						}
-						//printf("Connected:    Server Name: %s\n", hp->h_name);
 						OutputDebugStringA("Connected");
 						pptr = hp->h_addr_list;
-						//printf("\t\tIP Address: %s\n", inet_ntoa(server.sin_addr));
-						//printf("Transmiting:\n");
 						memset((char *)sbuf, 0, sizeof(sbuf));
-						//gets_s(sbuf); // get user's text
-						// data	is a, b, c, ..., z, a, b,...
-						//for (i = 0; i < BUF_SIZE-1; i++)
+
 						if (selected_filename == NULL) {
 							for (i = 0; i < packet_size-1; i++)
 							{
@@ -1039,7 +976,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							{
 								// Transmit data through the socket
 								ns = send(sd, sbuf, packet_size, 0);
-								//printf("Receive:\n");
 							}
 						}
 						else 
@@ -1052,14 +988,11 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							fopen_s(&selected_fp, selected_filename, "r");
 							for (i = 0; i < num_packets; i++)
 							{
-								//fgets(sbuf, packet_size, selected_fp);
 								fread_bytes = fread_s(sbuf, packet_size, 1, packet_size-1, selected_fp);
 								if (fread_bytes < packet_size-1) {
 									memset(sbuf + fread_bytes, 0, packet_size - fread_bytes);
 								}
-								////else {
-									sbuf[packet_size - 1] = '\0';
-								//}
+								sbuf[packet_size - 1] = '\0';
 								ns = send(sd, sbuf, packet_size, 0);
 							}
 							fclose(selected_fp);
@@ -1087,21 +1020,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 
 					}
-
-//					GetDlgItemText(hwndDlg, IDC_EDIT5_3, psize_buf, INPUT_BUF_SIZE);
-//					GetDlgItemText(hwndDlg, IDC_EDIT5_4, times_buf, INPUT_BUF_SIZE);
-//					OutputDebugString(psize_buf);
-//					OutputDebugString(times_buf);
-
-					//async_handle = WSAAsncGetHostByName(hwnd, WM_GET_IP_BY_NAME_DONE, hname_buf, result_buf, MAXGETHOSTSTRUCT);
-					//if (async_handle == 0)
-					//{
-					//	MessageBox(hwnd, "Error in get host by name", "Error", MB_OK);
-					//}
-					//else 
-					//{
-					//	EndDialog(hwndDlg, (INT_PTR)1);
-					//}
 					return TRUE;
 				case IDCANCEL:
 					EndDialog(hwndDlg, (INT_PTR)0);
@@ -1224,90 +1142,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 					);
 				break;
 			}
-			break;
-		case WM_GET_IP_BY_NAME_DONE:
-			if (WSAGETASYNCERROR(lParam) != 0) {
-				MessageBox(hwnd, "Failed to resolve the hostname", NULL, MB_ICONWARNING);
-			}
-			else 
-			{
-				hdc = GetDC(hwnd);
-				h_ip_query_result = (hostent*)result_buf;
-
-				// Display all results received 
-				for (p = h_ip_query_result->h_addr_list; *p != 0; p++)
-				{
-					struct in_addr in;
-					memcpy(&in.s_addr, *p, sizeof(in.s_addr));
-
-					TextOut(hdc, 0, 20 * k, h_ip_query_result->h_name, strlen(h_ip_query_result->h_name));
-					k++; 
-					TextOut(hdc, 0, 20 * k, inet_ntoa(in), strlen(inet_ntoa(in)));
-					k++; 
-				}
-			}
-			WSACleanup();
-			break;
-		case WM_GET_HOST_BY_IP_DONE:
-			if (WSAGETASYNCERROR(lParam) != 0) {
-				MessageBox(hwnd, "Failed to resolve the IP address", NULL, MB_ICONWARNING);
-			}
-			else
-			{
-				hdc = GetDC(hwnd);
-				h_ip_query_result = (hostent*)result_buf;
-
-				// Display all results received 
-				for (p = h_ip_query_result->h_addr_list; *p != 0; p++)
-				{
-					struct in_addr in;
-
-					memcpy(&in.s_addr, *p, sizeof(in.s_addr));
-					TextOut(hdc, 0, 20 * k, inet_ntoa(in), strlen(inet_ntoa(in)));
-					k++;
-					TextOut(hdc, 0, 20 * k, h_ip_query_result->h_name, strlen(h_ip_query_result->h_name));
-					k++;
-				}
-			}
-			WSACleanup();
-			break;
-		case WM_GET_SERVICE_BY_PORT:
-			if (WSAGETASYNCERROR(lParam) != 0) {
-				MessageBox(hwnd, "Failed to resolve the port number", NULL, MB_ICONWARNING);
-			}
-			else
-			{
-				hdc = GetDC(hwnd);
-				p_sv_query_result = (servent*)result_buf;
-
-				// Display the information received
-				sprintf_s(port_output, OUTPUT_BUF_SIZE, "Port Number: %hu, Protocol: %s", ntohs(p_sv_query_result->s_port), p_sv_query_result->s_proto);
-				TextOut(hdc, 0, 20 * k, port_output, strlen(port_output));
-				k++;
-				TextOut(hdc, 0, 20 * k, p_sv_query_result->s_name, strlen(p_sv_query_result->s_name));
-				k++;
-				OutputDebugString(((servent*)result_buf)->s_name);
-			}
-			WSACleanup();
-			break;
-		case WM_GET_PORT_BY_SERVICE:
-			if (WSAGETASYNCERROR(lParam) != 0) {
-				MessageBox(hwnd, "Failed to resolve the service name", NULL, MB_ICONWARNING);
-			}
-			else
-			{
-				hdc = GetDC(hwnd);
-				p_sv_query_result = (servent*)result_buf;
-
-				// Display the information received
-				sprintf_s(service_output, OUTPUT_BUF_SIZE, "Service Name: %s, Protocol: %s", p_sv_query_result->s_name, p_sv_query_result->s_proto);
-				TextOut(hdc, 0, 20 * k, service_output, strlen(service_output));
-				k++;
-				sprintf_s(port_number, OUTPUT_BUF_SIZE, "%hu", ntohs(p_sv_query_result->s_port));
-				TextOut(hdc, 0, 20 * k, port_number, strlen(port_number));
-				k++;
-			}
-			WSACleanup();
 			break;
 		case WM_PAINT:		// Process a repaint message
 			hdc = BeginPaint(hwnd, &paintstruct); // Acquire DC
