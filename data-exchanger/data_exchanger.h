@@ -7,8 +7,8 @@
 #define DE_CLIENT		210
 #define DE_SERVER		240
 
-LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hprevInstance, LPSTR lspszCmdParam, int nCmdShow);
+LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 void window_printline(char* str, int str_size);
 long delay(SYSTEMTIME t1, SYSTEMTIME t2);
 char* replace_char(char* str, char find, char replace);
