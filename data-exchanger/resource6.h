@@ -3,13 +3,13 @@
 // Used by dbox_server.rc
 //
 #define IDD_FORMVIEW6                   161
-#define IDC_EDIT6_4                     1059
-#define IDC_EDIT6_3                     1060
-#define IDC_EDIT6_1                     1061
-#define IDC_EDIT6_2                     1062
-#define IDC_RADIO6_1                    1063
-#define IDC_RADIO6_2                    1064
-#define IDC_BUTTON6_1                   1065
+#define IDC_EDIT6_4                     1600
+#define IDC_EDIT6_3                     1601
+#define IDC_EDIT6_1                     1602
+#define IDC_EDIT6_2                     1603
+#define IDC_RADIO6_1                    1604
+#define IDC_RADIO6_2                    1605
+#define IDC_BUTTON6_1                   1606
 
 // Next default values for new objects
 // 

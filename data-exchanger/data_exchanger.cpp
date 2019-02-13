@@ -1,7 +1,7 @@
 /*------------------------------------------------------------------------------------------------------------------
--- SOURCE FILE: nw_info_converter.cpp - A network infomation converter
+-- SOURCE FILE: data_exchanger.cpp - A data exchange application
 --
--- PROGRAM: nw-info-converter.exe
+-- PROGRAM: data-exchanger.exe
 --
 -- FUNCTIONS:
 -- int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hprevInstance, LPSTR lspszCmdParam, int nCmdShow)
@@ -30,11 +30,11 @@
 #define STRICT
 #define PORT 5150
 #define DATA_BUFSIZE 61440
+#define DISP_LINE_BUFSIZE 512
 
 #include <winsock2.h>
 #include <windows.h>
 #include <stdio.h>
-#include <list>
 #include "resource.h"
 #include "resource1.h"
 #include "resource2.h"
@@ -46,20 +46,22 @@
 #include "data_exchanger.h"
 #pragma comment(lib, "Ws2_32.lib")
 
-const char Name[] = "Network informatin Converter";
+const char Name[] = "Data Exchanger";
 const LPCTSTR helpMessage =
-	"Network information converter resolves a given network information\n"
-	"to the associated information like Host name to IP address vice versa.\n"
-	"Choose the task to perform from the menu items, \n"
-	"and put necessary information on the dialogue boxes.";
+	"Data Exchanger is a client-server program to send/receive packets or files.\n"
+	"From the Start menu, the role of the program can be chosen from Client or Server.\n"
+	"Run the program as server on a host, and connect to it from another host using this program as client.\n";
 const LPCTSTR helpCaption = "Help";
 
 WNDCLASSEX Wcl;
 HWND hwnd;
-const int OUTPUT_BUF_SIZE = 512;
+
 char result_buf[MAXGETHOSTSTRUCT];
+char disp_line_buf[DISP_LINE_BUFSIZE];
 
-
+char quit_msg[DISP_LINE_BUFSIZE];
+char stat_line1[DISP_LINE_BUFSIZE];
+char stat_line2[DISP_LINE_BUFSIZE];
 
 // Server listen
 typedef struct _SOCKET_INFORMATION {
@@ -71,9 +73,10 @@ typedef struct _SOCKET_INFORMATION {
 } SOCKET_INFORMATION, *LPSOCKET_INFORMATION;
 
 typedef struct svparams {
+	int port;
 	int packet_size;
 	int exp_packet_num;
-};
+} svparams;
 
 BOOL CreateSocketInformation(SOCKET s);
 void FreeSocketInformation(DWORD Event);
@@ -86,6 +89,29 @@ char *selected_filename = NULL;
 int selected_filesize;
 FILE *selected_fp = NULL;
 int num_packets;
+
+static unsigned k = 0;
+
+void window_printline(char* str, int str_size) {
+	HDC hdc;
+	char clearText[] = "                                                                                                                                                                                                          ";
+	int max_row = 16;
+
+	hdc = GetDC(hwnd);
+
+	if (k >= max_row) {
+		for (int i = 0; i < max_row; i++) {
+			TextOut(hdc, 0, 20 * i, clearText, strlen(clearText));
+		}
+		
+		k = 0;
+	}
+	// Display the information received
+	TextOut(hdc, 0, 20 * k, str, str_size);
+	k++;
+}
+
+
 
 // Compute the delay between tl and t2 in milliseconds
 long delay(SYSTEMTIME t1, SYSTEMTIME t2)
@@ -204,7 +230,6 @@ void FreeSocketInformation(DWORD Event)
 DWORD WINAPI runUDPServer(LPVOID tUdpParams) 
 {
 	SOCKET Listen;
-	SOCKET Accept;
 	SOCKADDR_IN InternetAddr;
 	DWORD Event;
 	WSANETWORKEVENTS NetworkEvents;
@@ -217,8 +242,6 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	// FILE WRITE
 	FILE *fp;
 	char filename[] = "udptest.txt";
-
-	//
 
 	// For UDP
 	SOCKADDR_IN sin;
@@ -236,6 +259,9 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	SYSTEMTIME tr_start_time;
 	SYSTEMTIME tr_end_time;
 	int first_read_flag = 1;
+
+	int total_bytes_recvd = 0;
+	int packet_bytes_recvd = 0;
 
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
@@ -255,7 +281,6 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 	CreateSocketInformation(Listen);
 
 	// Should not need FD_ACCEPT for UDP
-	//if (WSAEventSelect(Listen, EventArray[EventTotal - 1], FD_ACCEPT | FD_CLOSE) == SOCKET_ERROR)
 	if (WSAEventSelect(Listen, EventArray[EventTotal - 1], FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR)
 	{
 		printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
@@ -265,7 +290,7 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 
 	InternetAddr.sin_family = AF_INET;
 	InternetAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	InternetAddr.sin_port = htons(PORT);
+	InternetAddr.sin_port = htons(svp->port);
 
 	OutputDebugStringA("Process1 ok");
 
@@ -275,6 +300,16 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 		OutputDebugStringA("bind() error");
 		return TRUE;
 	}
+
+	sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Start listening...");
+	PostMessage(
+		(HWND)hwnd,
+		WM_DISPLAY_TEXT,
+		(WPARAM)disp_line_buf,
+		NULL
+	);
+
+
 
 	while (TRUE)
 	{
@@ -287,7 +322,29 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 			return TRUE;
 		}
 		if (Event == WSA_WAIT_TIMEOUT) {
-			printf("%ld", delay(tr_start_time, tr_end_time));
+			//printf("%ld", delay(tr_start_time, tr_end_time));
+			sprintf_s(quit_msg, DISP_LINE_BUFSIZE, "**** Finished the data transfer ****");
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)quit_msg,
+				NULL
+			);
+			sprintf_s(stat_line1, DISP_LINE_BUFSIZE, "Total data transferred: %d Bytes  Total Packet lost: %d", total_bytes_recvd, svp->exp_packet_num - recvd_packet);
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)stat_line1,
+				NULL
+			);
+			sprintf_s(stat_line2, DISP_LINE_BUFSIZE, "Transfer time: %ld ms", delay(tr_start_time, tr_end_time));
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)stat_line2,
+				NULL
+			);
+
 			WSACleanup();
 			ExitThread(0);
 		}
@@ -354,15 +411,28 @@ DWORD WINAPI runUDPServer(LPVOID tUdpParams)
 			if (SocketInfo->BytesRECV == svp->packet_size)
 			{
 				GetSystemTime(&tr_end_time);
+				packet_bytes_recvd += SocketInfo->BytesRECV;
+				total_bytes_recvd += SocketInfo->BytesRECV;
 				recvd_packet++;
 
 				fopen_s(&fp, filename, "a+");
 				fputs(SocketInfo->DataBuf.buf, fp);
 				fclose(fp);
+
+				sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Received: %d Bytes packet.  Total number of packets received: %d", packet_bytes_recvd, recvd_packet);
+				PostMessage(
+					(HWND)hwnd,
+					WM_DISPLAY_TEXT,
+					(WPARAM)disp_line_buf,
+					NULL
+				);
+
+				packet_bytes_recvd = 0;
 				SocketInfo->BytesRECV = 0;
 			}
 			else {
 				lost_packet++;
+				packet_bytes_recvd = 0;
 				SocketInfo->BytesRECV = 0;
 			}
 		}
@@ -392,24 +462,27 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 	DWORD Event;
 	WSANETWORKEVENTS NetworkEvents;
 	WSADATA wsaData;
+	WSABUF quit_buf;
 	DWORD Ret;
 	DWORD Flags;
 	DWORD RecvBytes;
 	DWORD SendBytes;
 	int recvd_packet = 0;
 	int processed_packet = 0;
+	int lost_packet = 0;
 	SYSTEMTIME tr_start_time;
 	SYSTEMTIME tr_end_time;
+	int total_bytes_recvd = 0;
+	int packet_bytes_recvd = 0;
 
 	// FILE WRITE
 	FILE *fp;
-	char filename[] = "test.txt";
+	char filename[] = "tcptest.txt";
 	//
 
 	svparams *svp = (svparams *)tTcpParams;
 	char *packet_buf = (char *)malloc(svp->packet_size);
 	memset(packet_buf, 0, sizeof(packet_buf));
-	printf("%d, %d", svp->exp_packet_num, svp->packet_size);
 
 	if ((Ret = WSAStartup(0x0202, &wsaData)) != 0)
 	{
@@ -435,7 +508,7 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 
 	InternetAddr.sin_family = AF_INET;
 	InternetAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	InternetAddr.sin_port = htons(PORT);
+	InternetAddr.sin_port = htons(svp->port);
 
 	OutputDebugStringA("Process1 ok");
 
@@ -452,7 +525,13 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 		OutputDebugStringA("listen() error");
 		return TRUE;
 	}
-
+	sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Start listening...");
+	PostMessage(
+		(HWND)hwnd,
+		WM_DISPLAY_TEXT,
+		(WPARAM)disp_line_buf,
+		NULL
+	);
 
 	while (TRUE)
 	{
@@ -468,8 +547,48 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 			return TRUE;
 		}
 		if (Event == WSA_WAIT_TIMEOUT) {
-			printf("%ld", delay(tr_start_time, tr_end_time));
+			//printf("%ld", delay(tr_start_time, tr_end_time));
+			sprintf_s(quit_msg, DISP_LINE_BUFSIZE, "**** Finished the data transfer ****");
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)quit_msg,
+				NULL
+			);
+			sprintf_s(stat_line1, DISP_LINE_BUFSIZE, "Total data transferred: %d Bytes  Total Packet lost: %d", total_bytes_recvd, lost_packet);
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)stat_line1,
+				NULL
+			);
+			sprintf_s(stat_line2, DISP_LINE_BUFSIZE, "Transfer time: %ld ms", delay(tr_start_time, tr_end_time));
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)stat_line2,
+				NULL
+			);
+			sprintf_s(quit_msg, DISP_LINE_BUFSIZE, "Server: finish the connection");
+			quit_buf.buf = quit_msg;
+			quit_buf.len = strlen(quit_msg);
+
+			if (WSASend(Accept, &(quit_buf), 1, &SendBytes, 0,
+				NULL, NULL) == SOCKET_ERROR)
+			{
+				if (WSAGetLastError() != WSAEWOULDBLOCK)
+				{
+					printf("WSASend() failed with error %d\n", WSAGetLastError());
+					FreeSocketInformation(Event - WSA_WAIT_EVENT_0);
+					return TRUE;
+				}
+			}
+
+
 			closesocket(Accept);
+			free(svp);
+			free(packet_buf);
+
 			WSACleanup();
 			ExitThread(0);
 		}
@@ -518,6 +637,15 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 
 			printf("Socket %d connected\n", Accept);
 			OutputDebugStringA("Connected");
+
+			sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Connected.");
+			PostMessage(
+				(HWND)hwnd,
+				WM_DISPLAY_TEXT,
+				(WPARAM)disp_line_buf,
+				NULL
+			);
+
 			GetSystemTime(&tr_start_time);
 		}
 
@@ -534,6 +662,7 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 				OutputDebugStringA("FD_READ error");
 				break;
 			}
+
 
 			if (NetworkEvents.lNetworkEvents & FD_WRITE &&
 				NetworkEvents.iErrorCode[FD_WRITE_BIT] != 0)
@@ -585,11 +714,13 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 							remaining = remaining - SocketInfo->BytesRECV;
 							SocketInfo->DataBuf.len = remaining;
 
-							for (int i=0; i<SocketInfo->BytesRECV; i++)
+							for (unsigned i=0; i<SocketInfo->BytesRECV; i++)
 							{
 								packet_buf[i+wrote_index] = SocketInfo->DataBuf.buf[i];
 							}
 							wrote_index += SocketInfo->BytesRECV;
+							packet_bytes_recvd += SocketInfo->BytesRECV;
+							total_bytes_recvd += SocketInfo->BytesRECV;
 
 							tout_counter = 0;
 						}
@@ -609,6 +740,16 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 				fopen_s(&fp, filename, "a+");
 				fputs(packet_buf, fp);
 				fclose(fp);
+
+				sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Received: %d Bytes packet.  Total number of packets received: %d", packet_bytes_recvd, recvd_packet);
+				PostMessage(
+					(HWND)hwnd,
+					WM_DISPLAY_TEXT,
+					(WPARAM)disp_line_buf,
+					NULL
+				);
+
+				packet_bytes_recvd = 0;
 				memset(packet_buf, 0, sizeof(packet_buf));
 				wrote_index = 0;
 
@@ -635,9 +776,9 @@ DWORD WINAPI runTCPServer(LPVOID tTcpParams)
 }
 
 
-BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	const int INPUT_BUF_SIZE = 256;
+	const int INPUT_BUF_SIZE=256;
 	HANDLE hTcpRunner;
 	HANDLE hUdpRunner;
 	DWORD dwTcpThreadID;
@@ -648,16 +789,18 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 	int packet_size;
 	int exp_packet_num;
+	int port;
 	const int BUF_SIZE = 256;
 	char DEF_HOST[] = "localhost";
 	const int DEF_PORT = 5150;
 	const int DEF_PSIZE = 1024;
 	const int DEF_REPEAT_NUM = 1;
+	char port_buf[INPUT_BUF_SIZE];
 	char psize_buf[INPUT_BUF_SIZE];
 	char times_buf[INPUT_BUF_SIZE];
-	svparams *svp = (svparams*)malloc(sizeof(svp));
 
 	WSAStartup(wVersionRequested, &wsaData);
+
 
 	if (GetDlgItemText(hwndDlg, IDC_EDIT6_3, psize_buf, INPUT_BUF_SIZE) == 0) 
 	{
@@ -673,9 +816,13 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	else {
 		exp_packet_num = atoi(times_buf);
 	}
-
-	svp->packet_size = packet_size;
-	svp->exp_packet_num = exp_packet_num;
+	if (GetDlgItemText(hwndDlg, IDC_EDIT6_2, port_buf, INPUT_BUF_SIZE) == 0) 
+	{
+		port = DEF_PORT;
+	}
+	else {
+		port = atoi(port_buf);
+	}
 
 	switch (message)
 	{
@@ -688,12 +835,22 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					if (IsDlgButtonChecked(hwndDlg, IDC_RADIO6_2))
 					{
 						//UDP
+						svparams *svp = (svparams*)malloc(sizeof(svp));
+						svp->port = port;
+						svp->packet_size = packet_size;
+						svp->exp_packet_num = exp_packet_num;
+
 						OutputDebugStringA("not yep");
 						hUdpRunner = CreateThread(NULL, 0, runUDPServer, svp, 0, &dwUdpThreadID);
 						return TRUE;
 					}
 					else 
 					{
+						svparams *svp = (svparams*)malloc(sizeof(svp));
+						svp->port = port;
+						svp->packet_size = packet_size;
+						svp->exp_packet_num = exp_packet_num;
+
 						OutputDebugStringA("yep");
 						hTcpRunner = CreateThread(NULL, 0, runTCPServer, svp, 0, &dwTcpThreadID);
 						return TRUE;
@@ -708,9 +865,9 @@ BOOL CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 
 
-BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	const int INPUT_BUF_SIZE = 256;
+	const int INPUT_BUF_SIZE=256;
 	const int BUF_SIZE = 256;
 	char DEF_HOST[] = "localhost";
 	const int DEF_PORT = 5150;
@@ -738,6 +895,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 	int bytes_to_read;
 	int i;
 	int j;
+	int packet_sent = 0;
 	// NEW
 
 	// Client only
@@ -815,10 +973,6 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 					else {
 						repeat_num = atoi(times_buf);
 					}
-					OutputDebugString(hname_buf);
-					OutputDebugString(port_buf);
-					OutputDebugString(psize_buf);
-					OutputDebugString(times_buf);
 					
 					sbuf = (char*)malloc(packet_size);
 					rbuf = (char*)malloc(packet_size);
@@ -833,6 +987,14 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							exit(1);
 						}
 
+						sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Opened socket for UDP.");
+						PostMessage(
+							(HWND)hwnd,
+							WM_DISPLAY_TEXT,
+							(WPARAM)disp_line_buf,
+							NULL
+						);
+
 						// Store server's information
 						memset((char *)&server, 0, sizeof(server));
 						server.sin_family = AF_INET;
@@ -846,24 +1008,24 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 						memcpy((char *)&server.sin_addr, hp->h_addr, hp->h_length);
 
 						// Bind local address to the socket
-						memset((char *)&client, 0, sizeof(client));
-						client.sin_family = AF_INET;
-						client.sin_port = htons(0);  // bind to any available port
-						client.sin_addr.s_addr = htonl(INADDR_ANY);
+						//memset((char *)&client, 0, sizeof(client));
+						//client.sin_family = AF_INET;
+						//client.sin_port = htons(0);  // bind to any available port
+						//client.sin_addr.s_addr = htonl(INADDR_ANY);
 
-						if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
-						{
-							perror("Can't bind name to socket");
-							exit(1);
-						}
-						// Find out what port was assigned and print it
-						client_len = sizeof(client);
-						if (getsockname(sd, (struct sockaddr *)&client, &client_len) < 0)
-						{
-							perror("getsockname: \n");
-							exit(1);
-						}
-						printf("Port aasigned is %d\n", ntohs(client.sin_port));
+						//if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
+						//{
+						//	perror("Can't bind name to socket");
+						//	exit(1);
+						//}
+						//// Find out what port was assigned and print it
+						//client_len = sizeof(client);
+						//if (getsockname(sd, (struct sockaddr *)&client, &client_len) < 0)
+						//{
+						//	perror("getsockname: \n");
+						//	exit(1);
+						//}
+						//printf("Port aasigned is %d\n", ntohs(client.sin_port));
 
 						if (packet_size > MAXLEN)
 						{
@@ -884,6 +1046,13 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 								j = (i < 26) ? i : i % 26;
 								sbuf[i] = 'a' + j;
 							}
+							sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Start sending packets.");
+							PostMessage(
+								(HWND)hwnd,
+								WM_DISPLAY_TEXT,
+								(WPARAM)disp_line_buf,
+								NULL
+							);
 
 							for (i = 0; i < repeat_num; i++) {
 								// Transmit data through the socket
@@ -894,6 +1063,7 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 									perror("sendto failure");
 									exit(1);
 								}
+								packet_sent++;
 							}
 						}
 						else {
@@ -911,23 +1081,35 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 								}
 								sbuf[packet_size - 1] = '\0';
 
+								sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Start sending packets.");
+								PostMessage(
+									(HWND)hwnd,
+									WM_DISPLAY_TEXT,
+									(WPARAM)disp_line_buf,
+									NULL
+								);
+
 								//Sleep(1);
 								if (sendto(sd, sbuf, packet_size, 0, (struct sockaddr *)&server, server_len) == -1)
 								{
 									perror("sendto failure");
 									exit(1);
 								}
+								packet_sent++;
 							}
 							fclose(selected_fp);
 						}
+						sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Finished sending packets. Sent: %d packets", packet_sent);
+						PostMessage(
+							(HWND)hwnd,
+							WM_DISPLAY_TEXT,
+							(WPARAM)disp_line_buf,
+							NULL
+						);
 
-						GetSystemTime(&stEndTime);
-
-						if (strncmp(sbuf, rbuf, packet_size) != 0)
-							printf("Data is corrupted\n");
-
+						free(sbuf);
+						free(rbuf);
 						closesocket(sd);
-						OutputDebugStringA("not yep");
 					}
 					else {
 						// TCP code here
@@ -958,7 +1140,14 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							OutputDebugStringA("muripo");
 							exit(1);
 						}
-						OutputDebugStringA("Connected");
+						sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Connected.");
+						PostMessage(
+							(HWND)hwnd,
+							WM_DISPLAY_TEXT,
+							(WPARAM)disp_line_buf,
+							NULL
+						);
+
 						pptr = hp->h_addr_list;
 						memset((char *)sbuf, 0, sizeof(sbuf));
 
@@ -972,11 +1161,20 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							OutputDebugString(sbuf);
 							OutputDebugStringA("otawa1\n");
 
+							sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Start sending packets.");
+							PostMessage(
+								(HWND)hwnd,
+								WM_DISPLAY_TEXT,
+								(WPARAM)disp_line_buf,
+								NULL
+							);
+
 							for (i = 0; i < repeat_num; i++) 
 							{
 								// Transmit data through the socket
 								ns = send(sd, sbuf, packet_size, 0);
 							}
+							packet_sent++;
 						}
 						else 
 						{
@@ -984,6 +1182,14 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							if (selected_filesize % packet_size-1 != 0) {
 								num_packets++;
 							}
+
+							sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Start sending packets.");
+							PostMessage(
+								(HWND)hwnd,
+								WM_DISPLAY_TEXT,
+								(WPARAM)disp_line_buf,
+								NULL
+							);
 
 							fopen_s(&selected_fp, selected_filename, "r");
 							for (i = 0; i < num_packets; i++)
@@ -994,13 +1200,25 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 								}
 								sbuf[packet_size - 1] = '\0';
 								ns = send(sd, sbuf, packet_size, 0);
+								packet_sent++;
 							}
 							fclose(selected_fp);
 						}
+						sprintf_s(disp_line_buf, DISP_LINE_BUFSIZE, "Finished sending packets. Sent: %d packets", packet_sent);
+						PostMessage(
+							(HWND)hwnd,
+							WM_DISPLAY_TEXT,
+							(WPARAM)disp_line_buf,
+							NULL
+						);
+
+
 
 						bp = rbuf;
 						bytes_to_read = packet_size;
 
+						free(sbuf);
+						free(rbuf);
 						// client makes repeated calls to recv until no more data is expected to arrive.
 						while (bytes_to_read != 0 && (n = recv(sd, bp, bytes_to_read, 0)) < packet_size)
 						{
@@ -1013,12 +1231,9 @@ BOOL CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 							}
 						}
 						//printf("%s\n", rbuf);
-						OutputDebugString(rbuf);
+						//OutputDebugString(rbuf);
 						closesocket(sd);
 						OutputDebugStringA("yep");
-
-
-
 					}
 					return TRUE;
 				case IDCANCEL:
@@ -1111,13 +1326,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 {
 	HDC hdc;
 	PAINTSTRUCT paintstruct;
+	char line[1024];
 	static unsigned k = 0;
-	hostent* h_ip_query_result;
-	servent* p_sv_query_result;
-	char** p;
-	char port_output[OUTPUT_BUF_SIZE];
-	char service_output[OUTPUT_BUF_SIZE];
-	char port_number[OUTPUT_BUF_SIZE];
 
 	switch (Message)
 	{
@@ -1140,8 +1350,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 						NULL,
 						NULL
 					);
-				break;
+					break;
+				default:
+					break;
 			}
+			break;
+		case WM_DISPLAY_TEXT:
+			//strcpy_s(line, (char *)wParam);
+			sprintf_s(line, "%s", (char *)wParam);
+
+			window_printline(line, strlen(line));
 			break;
 		case WM_PAINT:		// Process a repaint message
 			hdc = BeginPaint(hwnd, &paintstruct); // Acquire DC

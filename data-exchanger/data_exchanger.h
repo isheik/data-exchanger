@@ -8,9 +8,14 @@
 #define DE_SERVER		240
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-BOOL CALLBACK htoip_convert(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
-BOOL CALLBACK iptoh_convert(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
-BOOL CALLBACK ptosv_convert(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
-BOOL CALLBACK svtop_convert(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hprevInstance, LPSTR lspszCmdParam, int nCmdShow);
+void window_printline(char* str, int str_size);
+long delay(SYSTEMTIME t1, SYSTEMTIME t2);
 char* replace_char(char* str, char find, char replace);
-
+char* openSelectFileDialog();
+BOOL CreateSocketInformation(SOCKET s);
+void FreeSocketInformation(DWORD Event);
+DWORD WINAPI runUDPServer(LPVOID tUdpParams);
+DWORD WINAPI runTCPServer(LPVOID tTcpParams);
+INT_PTR CALLBACK handleServerDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
