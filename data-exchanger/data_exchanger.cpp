@@ -1255,8 +1255,8 @@ INT_PTR CALLBACK handleClientDialog(HWND hwndDlg, UINT message, WPARAM wParam, L
 							{
 								// Transmit data through the socket
 								ns = send(sd, sbuf, packet_size, 0);
+								packet_sent++;
 							}
-							packet_sent++;
 						}
 						else 
 						{
